@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Plus, Trash2, Link2, X } from "lucide-react";
 import { getJSON, postJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
@@ -27,6 +28,11 @@ interface Assignment {
   siteName: string | null;
   workerName: string | null;
 }
+interface Incident {
+  id: number;
+  assignedTo: number | null;
+  status: string;
+}
 
 const STATUS_STYLE: Record<string, string> = {
   available: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
@@ -39,6 +45,7 @@ export default function WorkersPage() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [assignFor, setAssignFor] = useState<Worker | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", role: "Field Technician" });
@@ -49,6 +56,7 @@ export default function WorkersPage() {
     getJSON<{ workers: Worker[] }>("/workers").then((d) => setWorkers(d.workers));
     getJSON<{ sites: Site[] }>("/sites").then((d) => setSites(d.sites));
     getJSON<{ assignments: Assignment[] }>("/assignments").then((d) => setAssignments(d.assignments));
+    getJSON<{ incidents: Incident[] }>("/incidents").then((d) => setIncidents(d.incidents));
   }
   useEffect(() => {
     load();
@@ -92,6 +100,7 @@ export default function WorkersPage() {
   }
 
   const workerAssignments = (id: number) => assignments.filter((a) => a.workerId === id);
+  const openIncidents = (id: number) => incidents.filter((i) => i.assignedTo === id && i.status !== "resolved").length;
 
   return (
     <div className="space-y-6">
@@ -146,6 +155,17 @@ export default function WorkersPage() {
                       </span>
                     ))}
                   </div>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between border-t border-ink-100 pt-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-400">Open incidents</span>
+                {openIncidents(w.id) > 0 ? (
+                  <Link href="/incidents?status=assigned" className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20 hover:bg-amber-100">
+                    {openIncidents(w.id)} active
+                  </Link>
+                ) : (
+                  <span className="text-xs text-ink-400">None</span>
                 )}
               </div>
 

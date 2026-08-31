@@ -14,6 +14,7 @@ interface Incident {
   severity: string;
   status: string;
   category: string;
+  siteId: number;
   siteName: string | null;
   workerName: string | null;
   createdAt: string;
@@ -128,7 +129,11 @@ function IncidentsInner() {
                   </Link>
                   <p className="text-xs capitalize text-ink-400">{i.category}</p>
                 </td>
-                <td className="px-4 py-3 text-ink-600">{i.siteName ?? "—"}</td>
+                <td className="px-4 py-3 text-ink-600">
+                  {i.siteName ? (
+                    <Link href={`/sites/${i.siteId}`} className="hover:text-brand-700">{i.siteName}</Link>
+                  ) : "—"}
+                </td>
                 <td className="px-4 py-3"><SeverityBadge value={i.severity} /></td>
                 <td className="px-4 py-3"><StatusBadge value={i.status} /></td>
                 <td className="px-4 py-3 text-ink-600">{i.workerName ?? "Unassigned"}</td>

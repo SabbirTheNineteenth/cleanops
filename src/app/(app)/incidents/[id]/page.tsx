@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Sparkles, RefreshCw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Sparkles, RefreshCw, Trash2, Cpu, UserCheck, Clock } from "lucide-react";
 import { getJSON, patchJSON, postJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
-import { Button, Card, Label, Select, Textarea, SeverityBadge, StatusBadge, Skeleton, SEVERITY_HEX } from "@/components/ui";
+import { Button, Card, Label, Select, Textarea, Badge, SeverityBadge, StatusBadge, Skeleton, SEVERITY_HEX } from "@/components/ui";
 
 interface Incident {
   id: number;
@@ -21,6 +22,9 @@ interface Incident {
   aiSummary: string | null;
   aiSeverity: string | null;
   aiSuggestedAction: string | null;
+  aiRecommendedRole: string | null;
+  aiResponseWindow: string | null;
+  aiSource: string | null;
   resolutionNote: string | null;
   createdAt: string;
   resolvedAt: string | null;
@@ -122,7 +126,10 @@ export default function IncidentDetailPage() {
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink-900">{incident.title}</h1>
           <p className="mt-1 text-sm text-ink-500">
-            {incident.siteName ?? "—"} · reported by {incident.reporterName ?? "—"} ·{" "}
+            {incident.siteName ? (
+              <Link href={`/sites/${incident.siteId}`} className="font-medium text-brand-600 hover:text-brand-700">{incident.siteName}</Link>
+            ) : "—"}{" "}
+            · reported by {incident.reporterName ?? "—"} ·{" "}
             {new Date(incident.createdAt + "Z").toLocaleString()}
           </p>
         </div>
@@ -147,37 +154,56 @@ export default function IncidentDetailPage() {
 
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between border-b border-brand-100 bg-gradient-to-r from-brand-50 to-transparent px-5 py-3">
+              <div className="flex items-center gap-2">
               <h2 className="flex items-center gap-2 font-display font-semibold text-ink-800">
                 <Sparkles size={18} className="text-brand-600" /> AI Assistance
               </h2>
-              {isAdmin && (
-                <Button variant="secondary" className="text-xs" onClick={reanalyze} disabled={busy}>
-                  <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Re-analyze
-                </Button>
+              {incident.aiSource && (
+                <Badge className={incident.aiSource === "openrouter" ? "bg-violet-50 text-violet-700 ring-violet-600/20" : "bg-ink-100 text-ink-500 ring-ink-500/20"}>
+                  <Cpu size={11} /> {incident.aiSource === "openrouter" ? "OpenRouter AI" : "Heuristic"}
+                </Badge>
               )}
             </div>
-            <div className="p-5">
-              {incident.aiSummary ? (
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Summary</p>
-                    <p className="mt-0.5 text-ink-700">{incident.aiSummary}</p>
-                  </div>
+            {isAdmin && (
+              <Button variant="secondary" className="text-xs" onClick={reanalyze} disabled={busy}>
+                <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Re-analyze
+              </Button>
+            )}
+          </div>
+          <div className="p-5">
+            {incident.aiSummary ? (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Summary</p>
+                  <p className="mt-0.5 text-ink-700">{incident.aiSummary}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Suggested severity</p>
-                    <div className="mt-1">
-                      <SeverityBadge value={incident.aiSeverity ?? "medium"} />
+                    <div className="mt-1"><SeverityBadge value={incident.aiSeverity ?? "medium"} /></div>
+                  </div>
+                  {incident.aiRecommendedRole && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Recommended role</p>
+                      <p className="mt-1 inline-flex items-center gap-1 text-ink-700"><UserCheck size={14} className="text-brand-500" />{incident.aiRecommendedRole}</p>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Suggested action</p>
-                    <p className="mt-0.5 text-ink-700">{incident.aiSuggestedAction}</p>
-                  </div>
+                  )}
+                  {incident.aiResponseWindow && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Response window</p>
+                      <p className="mt-1 inline-flex items-center gap-1 text-ink-700"><Clock size={14} className="text-brand-500" />{incident.aiResponseWindow}</p>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-ink-400">No AI analysis available.</p>
-              )}
-            </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Suggested action</p>
+                  <p className="mt-0.5 text-ink-700">{incident.aiSuggestedAction}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-ink-400">No AI analysis available.</p>
+            )}
+          </div>
           </Card>
         </div>
 
@@ -195,9 +221,15 @@ export default function IncidentDetailPage() {
                   >
                     <option value="">Unassigned</option>
                     {workers.map((w) => (
-                      <option key={w.id} value={w.id}>{w.name} — {w.role}</option>
+                      <option key={w.id} value={w.id}>
+                        {w.name} — {w.role}
+                        {incident.aiRecommendedRole && w.role === incident.aiRecommendedRole ? "  ★ recommended" : ""}
+                      </option>
                     ))}
                   </Select>
+                  {incident.aiRecommendedRole && (
+                    <p className="mt-1 text-xs text-ink-400">AI recommends a <span className="font-medium text-ink-600">{incident.aiRecommendedRole}</span> for this incident.</p>
+                  )}
                 </div>
                 <div>
                   <Label>Status</Label>
