@@ -120,6 +120,9 @@ async function main() {
         aiSummary: ai.summary,
         aiSeverity: ai.severity,
         aiSuggestedAction: ai.suggestedAction,
+        aiRecommendedRole: ai.recommendedRole,
+        aiResponseWindow: ai.responseWindow,
+        aiSource: ai.source,
       })
       .run();
   }

@@ -28,6 +28,9 @@ function withJoins() {
       aiSummary: incidents.aiSummary,
       aiSeverity: incidents.aiSeverity,
       aiSuggestedAction: incidents.aiSuggestedAction,
+      aiRecommendedRole: incidents.aiRecommendedRole,
+      aiResponseWindow: incidents.aiResponseWindow,
+      aiSource: incidents.aiSource,
       resolutionNote: incidents.resolutionNote,
       createdAt: incidents.createdAt,
       updatedAt: incidents.updatedAt,
@@ -99,6 +102,9 @@ incidentRoutes.post("/", async (c) => {
       aiSummary: ai.summary,
       aiSeverity: ai.severity,
       aiSuggestedAction: ai.suggestedAction,
+      aiRecommendedRole: ai.recommendedRole,
+      aiResponseWindow: ai.responseWindow,
+      aiSource: ai.source,
     })
     .returning()
     .get();
@@ -125,6 +131,9 @@ incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
       aiSummary: ai.summary,
       aiSeverity: ai.severity,
       aiSuggestedAction: ai.suggestedAction,
+      aiRecommendedRole: ai.recommendedRole,
+      aiResponseWindow: ai.responseWindow,
+      aiSource: ai.source,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(incidents.id, id))
