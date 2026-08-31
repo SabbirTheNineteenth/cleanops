@@ -2,7 +2,7 @@
 
 CleanOps is a full-stack web application for facilities and cleaning operations teams to manage sites, workers, and field incidents in one place. Supervisors report incidents, an AI assistant summarizes them and recommends a severity and next action, admins assign the right worker, and that worker updates the job through resolution — all tracked on a live operations dashboard.
 
-Built as a single Next.js application with a Hono API layer, a typed SQLite database via Drizzle ORM, JWT-based authentication with role-based access control, and an OpenRouter AI integration that degrades gracefully to a local heuristic when no API key is present.
+Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLite database via Drizzle ORM (a local file in development, Turso in production), JWT-based authentication with role-based access control, and an OpenRouter AI integration that degrades gracefully to a local heuristic when no API key is present.
 
 ---
 
@@ -49,7 +49,7 @@ Built as a single Next.js application with a Hono API layer, a typed SQLite data
 |---|---|
 | Framework | Next.js 15 (App Router), React 19, TypeScript |
 | API | Hono, mounted inside the Next.js route handler |
-| Database | SQLite via Drizzle ORM and better-sqlite3 |
+| Database | libSQL / SQLite via Drizzle ORM (`@libsql/client`) — local file in dev, Turso in production |
 | Auth | jose (JWT / HS256), bcryptjs, httpOnly cookies |
 | Validation | Zod |
 | UI | Tailwind CSS, lucide-react icons, Recharts |
@@ -69,7 +69,7 @@ Next.js route handler  ──►  Hono app
                               ├─ auth middleware (JWT verify + live DB status/role check)
                               ├─ route modules (auth, sites, workers, assignments, incidents, users, stats)
                               ├─ AI module (OpenRouter → heuristic fallback)
-                              └─ Drizzle ORM ──► SQLite (cleanops.db)
+                              └─ Drizzle ORM ──► libSQL (local file dev / Turso prod)
 ```
 
 Authentication is a signed JWT stored in an httpOnly cookie. On each protected request the middleware verifies the token and then re-reads the account from the database, so a banned or downgraded user loses access without needing to log out. Admin-only endpoints sit behind an additional `requireAdmin` guard.
@@ -108,7 +108,8 @@ The migration step is idempotent — it creates tables if missing and adds newer
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | Path to the SQLite file (default `cleanops.db`). |
+| `DATABASE_URL` | Yes | libSQL connection string. Local dev uses `file:cleanops.db`; production uses a Turso URL like `libsql://<db>.turso.io`. |
+| `DATABASE_AUTH_TOKEN` | Prod only | Turso auth token. Leave empty for a local file; required for a remote Turso URL. |
 | `JWT_SECRET` | Yes | Secret used to sign session tokens. Use a long random string in production. |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key. If empty, incident analysis uses the local heuristic. |
 | `OPENROUTER_MODEL` | No | Model id for analysis. Defaults to a free-tier Llama model. |
@@ -225,3 +226,33 @@ src/
 | `npm run db:migrate` | Create/upgrade the database schema. |
 | `npm run db:seed` | Load demo data. |
 | `npm run db:reset` | Delete the database, migrate, and re-seed. |
+
+---
+
+## Deployment (Vercel + Turso)
+
+Vercel's serverless runtime has an ephemeral, read-only filesystem, so a local SQLite file cannot be used in production. CleanOps uses [Turso](https://turso.tech) (hosted libSQL) as the production database; the same Drizzle code runs against a local file in development.
+
+1. Create a Turso database and generate an auth token:
+
+   ```bash
+   turso db create cleanops
+   turso db show cleanops --url        # → libsql://cleanops-<org>.turso.io
+   turso db tokens create cleanops     # → the auth token
+   ```
+
+2. In the Vercel project settings, add the environment variables:
+
+   - `DATABASE_URL` = the `libsql://…turso.io` URL
+   - `DATABASE_AUTH_TOKEN` = the Turso token
+   - `JWT_SECRET` = a long random string
+   - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (optional)
+
+3. Provision the schema and demo data against Turso (run locally with the production env vars exported):
+
+   ```bash
+   DATABASE_URL="libsql://…turso.io" DATABASE_AUTH_TOKEN="…" npm run db:migrate
+   DATABASE_URL="libsql://…turso.io" DATABASE_AUTH_TOKEN="…" npm run db:seed
+   ```
+
+4. Deploy. Because the middleware reads the account from the database on every protected request, make sure the Turso database has been migrated before the first login — otherwise authentication returns a 500.
