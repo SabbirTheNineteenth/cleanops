@@ -1,21 +1,20 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 
+const url = process.env.DATABASE_URL || "file:cleanops.db";
+const authToken = process.env.DATABASE_AUTH_TOKEN;
+
 const globalForDb = globalThis as unknown as {
-  sqlite?: Database.Database;
+  client?: ReturnType<typeof createClient>;
 };
 
-const dbFile = process.env.DATABASE_URL || "cleanops.db";
-
-export const sqlite =
-  globalForDb.sqlite ?? new Database(dbFile);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+export const client =
+  globalForDb.client ?? createClient({ url, authToken });
 
 if (process.env.NODE_ENV !== "production") {
-  globalForDb.sqlite = sqlite;
+  globalForDb.client = client;
 }
 
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(client, { schema });
 export { schema };

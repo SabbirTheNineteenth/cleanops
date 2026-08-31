@@ -1,12 +1,12 @@
 import "dotenv/config";
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
 
-const dbFile = process.env.DATABASE_URL || "cleanops.db";
-const db = new Database(dbFile);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+const url = process.env.DATABASE_URL || "file:cleanops.db";
+const authToken = process.env.DATABASE_AUTH_TOKEN;
+const db = createClient({ url, authToken });
 
-db.exec(`
+async function main() {
+  await db.executeMultiple(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -71,25 +71,28 @@ CREATE INDEX IF NOT EXISTS idx_assignments_site ON assignments(site_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_worker ON assignments(worker_id);
 `);
 
-const userCols = db.prepare(`PRAGMA table_info(users)`).all() as {
-  name: string;
-}[];
-if (!userCols.some((col) => col.name === "status")) {
-  db.exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
-  console.log("↳ Added users.status column");
+  const userCols = await db.execute(`PRAGMA table_info(users)`);
+  if (!userCols.rows.some((col) => col.name === "status")) {
+    await db.execute(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+    console.log("Added users.status column");
+  }
+
+  const workerCols = await db.execute(`PRAGMA table_info(workers)`);
+  if (!workerCols.rows.some((col) => col.name === "user_id")) {
+    await db.execute(`ALTER TABLE workers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+    console.log("Added workers.user_id column");
+  }
+
+  await db.execute(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_user ON workers(user_id) WHERE user_id IS NOT NULL`,
+  );
+
+  console.log(`Migrated schema into ${url}`);
 }
 
-const workerCols = db.prepare(`PRAGMA table_info(workers)`).all() as {
-  name: string;
-}[];
-if (!workerCols.some((col) => col.name === "user_id")) {
-  db.exec(`ALTER TABLE workers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
-  console.log("↳ Added workers.user_id column");
-}
-
-db.exec(
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_user ON workers(user_id) WHERE user_id IS NOT NULL`,
-);
-
-console.log(`✅ Migrated schema into ${dbFile}`);
-db.close();
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
