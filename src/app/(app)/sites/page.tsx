@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Plus, Trash2, MapPin, Pencil } from "lucide-react";
 import { getJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
@@ -62,7 +63,9 @@ export default function SitesPage() {
           <tbody>
             {sites.map((s) => (
               <tr key={s.id} className="border-b border-ink-100 transition last:border-0 hover:bg-ink-50/60">
-                <td className="px-4 py-3 font-medium text-ink-800">{s.name}</td>
+                <td className="px-4 py-3 font-medium text-ink-800">
+                  <Link href={`/sites/${s.id}`} className="hover:text-brand-700">{s.name}</Link>
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-ink-600">{s.code}</td>
                 <td className="px-4 py-3 text-ink-600">
                   <span className="inline-flex items-center gap-1">
