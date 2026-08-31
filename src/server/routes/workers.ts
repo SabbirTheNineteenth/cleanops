@@ -9,14 +9,14 @@ export const workerRoutes = new Hono<{ Variables: Variables }>();
 
 workerRoutes.use("*", requireAuth);
 
-workerRoutes.get("/", (c) => {
-  const rows = db.select().from(workers).orderBy(desc(workers.createdAt)).all();
+workerRoutes.get("/", async (c) => {
+  const rows = await db.select().from(workers).orderBy(desc(workers.createdAt)).all();
   return c.json({ workers: rows });
 });
 
-workerRoutes.get("/:id", (c) => {
+workerRoutes.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.select().from(workers).where(eq(workers.id, id)).get();
+  const row = await db.select().from(workers).where(eq(workers.id, id)).get();
   if (!row) return c.json({ error: "Worker not found" }, 404);
   return c.json({ worker: row });
 });
@@ -26,14 +26,14 @@ workerRoutes.post("/", requireAdmin, async (c) => {
   const parsed = workerSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const existing = db
+  const existing = await db
     .select()
     .from(workers)
     .where(eq(workers.email, parsed.data.email.toLowerCase()))
     .get();
   if (existing) return c.json({ error: "Worker email already exists" }, 409);
 
-  const row = db
+  const row = await db
     .insert(workers)
     .values({ ...parsed.data, email: parsed.data.email.toLowerCase() })
     .returning()
@@ -47,7 +47,7 @@ workerRoutes.patch("/:id", requireAdmin, async (c) => {
   const parsed = workerSchema.partial().safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const row = db
+  const row = await db
     .update(workers)
     .set(parsed.data)
     .where(eq(workers.id, id))
@@ -57,9 +57,9 @@ workerRoutes.patch("/:id", requireAdmin, async (c) => {
   return c.json({ worker: row });
 });
 
-workerRoutes.delete("/:id", requireAdmin, (c) => {
+workerRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.delete(workers).where(eq(workers.id, id)).returning().get();
+  const row = await db.delete(workers).where(eq(workers.id, id)).returning().get();
   if (!row) return c.json({ error: "Worker not found" }, 404);
   return c.json({ ok: true });
 });

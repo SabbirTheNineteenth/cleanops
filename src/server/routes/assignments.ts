@@ -9,11 +9,11 @@ export const assignmentRoutes = new Hono<{ Variables: Variables }>();
 
 assignmentRoutes.use("*", requireAuth);
 
-assignmentRoutes.get("/", (c) => {
+assignmentRoutes.get("/", async (c) => {
   const siteId = c.req.query("siteId");
   const workerId = c.req.query("workerId");
 
-  const rows = db
+  const rows = await db
     .select({
       id: assignments.id,
       siteId: assignments.siteId,
@@ -46,12 +46,12 @@ assignmentRoutes.post("/", requireAdmin, async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { siteId, workerId } = parsed.data;
 
-  const site = db.select().from(sites).where(eq(sites.id, siteId)).get();
+  const site = await db.select().from(sites).where(eq(sites.id, siteId)).get();
   if (!site) return c.json({ error: "Site not found" }, 404);
-  const worker = db.select().from(workers).where(eq(workers.id, workerId)).get();
+  const worker = await db.select().from(workers).where(eq(workers.id, workerId)).get();
   if (!worker) return c.json({ error: "Worker not found" }, 404);
 
-  const dup = db
+  const dup = await db
     .select()
     .from(assignments)
     .where(
@@ -65,13 +65,13 @@ assignmentRoutes.post("/", requireAdmin, async (c) => {
   if (dup)
     return c.json({ error: "Worker already assigned to this site" }, 409);
 
-  const row = db
+  const row = await db
     .insert(assignments)
     .values({ siteId, workerId, active: true })
     .returning()
     .get();
 
-  db.update(workers)
+  await db.update(workers)
     .set({ status: "assigned" })
     .where(eq(workers.id, workerId))
     .run();
@@ -79,21 +79,21 @@ assignmentRoutes.post("/", requireAdmin, async (c) => {
   return c.json({ assignment: row }, 201);
 });
 
-assignmentRoutes.delete("/:id", requireAdmin, (c) => {
+assignmentRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const existing = db
+  const existing = await db
     .select()
     .from(assignments)
     .where(eq(assignments.id, id))
     .get();
   if (!existing) return c.json({ error: "Assignment not found" }, 404);
 
-  db.update(assignments)
+  await db.update(assignments)
     .set({ active: false, unassignedAt: new Date().toISOString() })
     .where(eq(assignments.id, id))
     .run();
 
-  const stillActive = db
+  const stillActive = await db
     .select()
     .from(assignments)
     .where(
@@ -104,7 +104,7 @@ assignmentRoutes.delete("/:id", requireAdmin, (c) => {
     )
     .get();
   if (!stillActive) {
-    db.update(workers)
+    await db.update(workers)
       .set({ status: "available" })
       .where(eq(workers.id, existing.workerId))
       .run();

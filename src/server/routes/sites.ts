@@ -9,14 +9,14 @@ export const siteRoutes = new Hono<{ Variables: Variables }>();
 
 siteRoutes.use("*", requireAuth);
 
-siteRoutes.get("/", (c) => {
-  const rows = db.select().from(sites).orderBy(desc(sites.createdAt)).all();
+siteRoutes.get("/", async (c) => {
+  const rows = await db.select().from(sites).orderBy(desc(sites.createdAt)).all();
   return c.json({ sites: rows });
 });
 
-siteRoutes.get("/:id", (c) => {
+siteRoutes.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.select().from(sites).where(eq(sites.id, id)).get();
+  const row = await db.select().from(sites).where(eq(sites.id, id)).get();
   if (!row) return c.json({ error: "Site not found" }, 404);
   return c.json({ site: row });
 });
@@ -26,14 +26,14 @@ siteRoutes.post("/", requireAdmin, async (c) => {
   const parsed = siteSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const existing = db
+  const existing = await db
     .select()
     .from(sites)
     .where(eq(sites.code, parsed.data.code))
     .get();
   if (existing) return c.json({ error: "Site code already exists" }, 409);
 
-  const row = db.insert(sites).values(parsed.data).returning().get();
+  const row = await db.insert(sites).values(parsed.data).returning().get();
   return c.json({ site: row }, 201);
 });
 
@@ -43,7 +43,7 @@ siteRoutes.patch("/:id", requireAdmin, async (c) => {
   const parsed = siteSchema.partial().safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const row = db
+  const row = await db
     .update(sites)
     .set(parsed.data)
     .where(eq(sites.id, id))
@@ -53,9 +53,9 @@ siteRoutes.patch("/:id", requireAdmin, async (c) => {
   return c.json({ site: row });
 });
 
-siteRoutes.delete("/:id", requireAdmin, (c) => {
+siteRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.delete(sites).where(eq(sites.id, id)).returning().get();
+  const row = await db.delete(sites).where(eq(sites.id, id)).returning().get();
   if (!row) return c.json({ error: "Site not found" }, 404);
   return c.json({ ok: true });
 });

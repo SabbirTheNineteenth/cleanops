@@ -39,33 +39,33 @@ function withJoins() {
     .leftJoin(users, eq(incidents.reportedBy, users.id));
 }
 
-incidentRoutes.get("/", (c) => {
+incidentRoutes.get("/", async (c) => {
   const { status, severity, siteId } = c.req.query();
-  let rows = withJoins().orderBy(desc(incidents.createdAt)).all();
+  let rows = await withJoins().orderBy(desc(incidents.createdAt)).all();
   if (status) rows = rows.filter((r) => r.status === status);
   if (severity) rows = rows.filter((r) => r.severity === severity);
   if (siteId) rows = rows.filter((r) => r.siteId === Number(siteId));
   return c.json({ incidents: rows });
 });
 
-incidentRoutes.get("/mine", (c) => {
+incidentRoutes.get("/mine", async (c) => {
   const user = c.get("user");
-  const worker = db
+  const worker = await db
     .select()
     .from(workers)
     .where(eq(workers.userId, Number(user.sub)))
     .get();
   if (!worker) return c.json({ incidents: [], worker: null });
-  const rows = withJoins()
+  const rows = await withJoins()
     .where(eq(incidents.assignedTo, worker.id))
     .orderBy(desc(incidents.createdAt))
     .all();
   return c.json({ incidents: rows, worker: { id: worker.id, name: worker.name } });
 });
 
-incidentRoutes.get("/:id", (c) => {
+incidentRoutes.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = withJoins().where(eq(incidents.id, id)).get();
+  const row = await withJoins().where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
   return c.json({ incident: row });
 });
@@ -77,7 +77,7 @@ incidentRoutes.post("/", async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { title, description, category, siteId, severity } = parsed.data;
 
-  const site = db.select().from(sites).where(eq(sites.id, siteId)).get();
+  const site = await db.select().from(sites).where(eq(sites.id, siteId)).get();
   if (!site) return c.json({ error: "Site not found" }, 404);
 
   const ai = await analyzeIncident({
@@ -87,7 +87,7 @@ incidentRoutes.post("/", async (c) => {
     siteName: site.name,
   });
 
-  const row = db
+  const row = await db
     .insert(incidents)
     .values({
       title,
@@ -108,9 +108,9 @@ incidentRoutes.post("/", async (c) => {
 
 incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.select().from(incidents).where(eq(incidents.id, id)).get();
+  const row = await db.select().from(incidents).where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
-  const site = db.select().from(sites).where(eq(sites.id, row.siteId)).get();
+  const site = await db.select().from(sites).where(eq(sites.id, row.siteId)).get();
 
   const ai = await analyzeIncident({
     title: row.title,
@@ -119,7 +119,7 @@ incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
     siteName: site?.name,
   });
 
-  const updated = db
+  const updated = await db
     .update(incidents)
     .set({
       aiSummary: ai.summary,
@@ -136,7 +136,7 @@ incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
 
 incidentRoutes.patch("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const existing = db.select().from(incidents).where(eq(incidents.id, id)).get();
+  const existing = await db.select().from(incidents).where(eq(incidents.id, id)).get();
   if (!existing) return c.json({ error: "Incident not found" }, 404);
 
   const body = await c.req.json().catch(() => ({}));
@@ -148,7 +148,7 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
 
   if (assignedTo !== undefined) {
     if (assignedTo !== null) {
-      const worker = db
+      const worker = await db
         .select()
         .from(workers)
         .where(eq(workers.id, assignedTo))
@@ -170,7 +170,7 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
     patch.resolvedAt = status === "resolved" ? new Date().toISOString() : null;
   }
 
-  const updated = db
+  const updated = await db
     .update(incidents)
     .set(patch)
     .where(eq(incidents.id, id))
@@ -184,7 +184,7 @@ incidentRoutes.patch("/:id/work", async (c) => {
   const id = Number(c.req.param("id"));
   const user = c.get("user");
 
-  const worker = db
+  const worker = await db
     .select()
     .from(workers)
     .where(eq(workers.userId, Number(user.sub)))
@@ -193,7 +193,7 @@ incidentRoutes.patch("/:id/work", async (c) => {
     return c.json({ error: "No worker profile linked to your account" }, 403);
   }
 
-  const existing = db.select().from(incidents).where(eq(incidents.id, id)).get();
+  const existing = await db.select().from(incidents).where(eq(incidents.id, id)).get();
   if (!existing) return c.json({ error: "Incident not found" }, 404);
   if (existing.assignedTo !== worker.id) {
     return c.json({ error: "This incident is not assigned to you" }, 403);
@@ -211,7 +211,7 @@ incidentRoutes.patch("/:id/work", async (c) => {
     patch.resolvedAt = status === "resolved" ? new Date().toISOString() : null;
   }
 
-  const updated = db
+  const updated = await db
     .update(incidents)
     .set(patch)
     .where(eq(incidents.id, id))
@@ -221,9 +221,9 @@ incidentRoutes.patch("/:id/work", async (c) => {
   return c.json({ incident: updated });
 });
 
-incidentRoutes.delete("/:id", requireAdmin, (c) => {
+incidentRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const row = db.delete(incidents).where(eq(incidents.id, id)).returning().get();
+  const row = await db.delete(incidents).where(eq(incidents.id, id)).returning().get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
   return c.json({ ok: true });
 });

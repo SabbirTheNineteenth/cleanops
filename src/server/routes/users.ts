@@ -24,25 +24,24 @@ const publicUserCols = {
   createdAt: users.createdAt,
 };
 
-function ensureWorkerForUser(u: { id: number; name: string; email: string; role: string }) {
+async function ensureWorkerForUser(u: { id: number; name: string; email: string; role: string }) {
   if (u.role !== "user") return;
-  const existing = db
+  const existing = await db
     .select({ id: workers.id })
     .from(workers)
     .where(eq(workers.userId, u.id))
     .get();
   if (existing) return;
-  const emailTaken = db
+  const emailTaken = await db
     .select({ id: workers.id })
     .from(workers)
     .where(eq(workers.email, u.email.toLowerCase()))
     .get();
   if (emailTaken) {
-
-    db.update(workers).set({ userId: u.id }).where(eq(workers.id, emailTaken.id)).run();
+    await db.update(workers).set({ userId: u.id }).where(eq(workers.id, emailTaken.id)).run();
     return;
   }
-  db.insert(workers)
+  await db.insert(workers)
     .values({
       userId: u.id,
       name: u.name,
@@ -53,8 +52,8 @@ function ensureWorkerForUser(u: { id: number; name: string; email: string; role:
     .run();
 }
 
-userRoutes.get("/", requireAdmin, (c) => {
-  const rows = db
+userRoutes.get("/", requireAdmin, async (c) => {
+  const rows = await db
     .select(publicUserCols)
     .from(users)
     .orderBy(desc(users.createdAt))
@@ -68,7 +67,7 @@ userRoutes.post("/", requireAdmin, async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { name, email, password, role } = parsed.data;
 
-  const existing = db
+  const existing = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -76,12 +75,12 @@ userRoutes.post("/", requireAdmin, async (c) => {
   if (existing) return c.json({ error: "Email already registered" }, 409);
 
   const passwordHash = await hashPassword(password);
-  const row = db
+  const row = await db
     .insert(users)
     .values({ name, email: email.toLowerCase(), passwordHash, role, status: "active" })
     .returning(publicUserCols)
     .get();
-  ensureWorkerForUser(row);
+  await ensureWorkerForUser(row);
   return c.json({ user: row }, 201);
 });
 
@@ -96,35 +95,35 @@ userRoutes.patch("/:id", requireAdmin, async (c) => {
     return c.json({ error: "You cannot change your own account status" }, 400);
   }
 
-  const target = db.select().from(users).where(eq(users.id, id)).get();
+  const target = await db.select().from(users).where(eq(users.id, id)).get();
   if (!target) return c.json({ error: "User not found" }, 404);
   if (target.role === "admin" && parsed.data.status === "banned") {
     return c.json({ error: "Admin accounts cannot be banned" }, 400);
   }
 
-  const row = db
+  const row = await db
     .update(users)
     .set({ status: parsed.data.status })
     .where(eq(users.id, id))
     .returning(publicUserCols)
     .get();
 
-  if (parsed.data.status === "active") ensureWorkerForUser(row);
+  if (parsed.data.status === "active") await ensureWorkerForUser(row);
 
   return c.json({ user: row });
 });
 
-userRoutes.delete("/:id", requireAdmin, (c) => {
+userRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
   const me = c.get("user");
   if (Number(me.sub) === id) {
     return c.json({ error: "You cannot delete your own account" }, 400);
   }
-  const target = db.select().from(users).where(eq(users.id, id)).get();
+  const target = await db.select().from(users).where(eq(users.id, id)).get();
   if (!target) return c.json({ error: "User not found" }, 404);
   if (target.role === "admin") {
     return c.json({ error: "Admin accounts cannot be deleted" }, 400);
   }
-  db.delete(users).where(eq(users.id, id)).run();
+  await db.delete(users).where(eq(users.id, id)).run();
   return c.json({ ok: true });
 });

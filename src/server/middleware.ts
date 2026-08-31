@@ -15,7 +15,7 @@ export async function requireAuth(c: AppContext, next: Next) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const account = db
+  const account = await db
     .select({ status: users.status, role: users.role })
     .from(users)
     .where(eq(users.id, Number(session.sub)))

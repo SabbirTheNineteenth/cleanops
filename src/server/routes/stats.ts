@@ -8,15 +8,15 @@ export const statsRoutes = new Hono<{ Variables: Variables }>();
 
 statsRoutes.use("*", requireAuth);
 
-statsRoutes.get("/", (c) => {
-  const allIncidents = db.select().from(incidents).all();
-  const allSites = db.select().from(sites).all();
-  const allWorkers = db.select().from(workers).all();
-  const pendingApprovals = db
+statsRoutes.get("/", async (c) => {
+  const allIncidents = await db.select().from(incidents).all();
+  const allSites = await db.select().from(sites).all();
+  const allWorkers = await db.select().from(workers).all();
+  const pendingApprovals = (await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.status, "pending"))
-    .all().length;
+    .all()).length;
 
   const byStatus = { open: 0, assigned: 0, in_progress: 0, resolved: 0 };
   const bySeverity = { low: 0, medium: 0, high: 0, critical: 0 };
@@ -36,7 +36,7 @@ statsRoutes.get("/", (c) => {
     days.push({ date: key, count });
   }
 
-  const recent = db
+  const recent = await db
     .select({
       id: incidents.id,
       title: incidents.title,

@@ -23,7 +23,7 @@ authRoutes.post("/register", async (c) => {
   }
   const { name, email, password } = parsed.data;
 
-  const existing = db
+  const existing = await db
     .select()
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -33,7 +33,7 @@ authRoutes.post("/register", async (c) => {
   }
 
   const passwordHash = await hashPassword(password);
-  db.insert(users)
+  await db.insert(users)
     .values({
       name,
       email: email.toLowerCase(),
@@ -58,7 +58,7 @@ authRoutes.post("/login", async (c) => {
   }
   const { email, password } = parsed.data;
 
-  const user = db
+  const user = await db
     .select()
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
