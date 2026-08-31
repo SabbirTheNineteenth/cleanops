@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS incidents (
   ai_summary TEXT,
   ai_severity TEXT,
   ai_suggested_action TEXT,
+  ai_recommended_role TEXT,
+  ai_response_window TEXT,
+  ai_source TEXT,
   resolution_note TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
@@ -86,6 +89,21 @@ CREATE INDEX IF NOT EXISTS idx_assignments_worker ON assignments(worker_id);
   await db.execute(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_user ON workers(user_id) WHERE user_id IS NOT NULL`,
   );
+
+  const incidentCols = await db.execute(`PRAGMA table_info(incidents)`);
+  const hasCol = (name: string) => incidentCols.rows.some((col) => col.name === name);
+  if (!hasCol("ai_recommended_role")) {
+    await db.execute(`ALTER TABLE incidents ADD COLUMN ai_recommended_role TEXT`);
+    console.log("Added incidents.ai_recommended_role column");
+  }
+  if (!hasCol("ai_response_window")) {
+    await db.execute(`ALTER TABLE incidents ADD COLUMN ai_response_window TEXT`);
+    console.log("Added incidents.ai_response_window column");
+  }
+  if (!hasCol("ai_source")) {
+    await db.execute(`ALTER TABLE incidents ADD COLUMN ai_source TEXT`);
+    console.log("Added incidents.ai_source column");
+  }
 
   console.log(`Migrated schema into ${url}`);
 }
