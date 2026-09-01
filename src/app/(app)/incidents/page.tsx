@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Plus, Sparkles, ClipboardList } from "lucide-react";
+import { Plus, Sparkles, ClipboardList, Wand2, Undo2 } from "lucide-react";
 import { getJSON, postJSON } from "@/lib/api";
 import { Button, Card, Input, Label, Select, Textarea, SeverityBadge, StatusBadge, EmptyState, SEVERITY_HEX } from "@/components/ui";
 import { Modal } from "@/components/Modal";
@@ -43,6 +43,9 @@ function IncidentsInner() {
   const [form, setForm] = useState({ title: "", description: "", category: "general", siteId: "", severity: "medium" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [preEnhance, setPreEnhance] = useState<string | null>(null);
+  const [enhanceNote, setEnhanceNote] = useState("");
 
   function load() {
     const params = new URLSearchParams();
@@ -59,6 +62,46 @@ function IncidentsInner() {
     getJSON<{ sites: Site[] }>("/sites").then((d) => setSites(d.sites));
   }, []);
 
+  async function enhance() {
+    if (form.description.trim().length < 3) {
+      setEnhanceNote("Write a few words first.");
+      return;
+    }
+    setEnhancing(true);
+    setEnhanceNote("");
+    const original = form.description;
+    try {
+      const res = await postJSON<{ text: string; source: string }>("/incidents/enhance", {
+        text: original,
+        title: form.title,
+        category: form.category,
+        siteName: sites.find((s) => String(s.id) === form.siteId)?.name ?? "",
+      });
+      setPreEnhance(original);
+      setForm((f) => ({ ...f, description: res.text }));
+      setEnhanceNote(
+        res.source === "openrouter" ? "Rewritten by AI." : "Cleaned up (AI key not configured).",
+      );
+    } catch (err) {
+      setEnhanceNote(err instanceof Error ? err.message : "Could not enhance text");
+    } finally {
+      setEnhancing(false);
+    }
+  }
+
+  function undoEnhance() {
+    if (preEnhance === null) return;
+    setForm((f) => ({ ...f, description: preEnhance }));
+    setPreEnhance(null);
+    setEnhanceNote("");
+  }
+
+  function closeModal() {
+    setOpen(false);
+    setPreEnhance(null);
+    setEnhanceNote("");
+  }
+
   async function report(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -67,6 +110,8 @@ function IncidentsInner() {
       await postJSON("/incidents", { ...form, siteId: Number(form.siteId) });
       setOpen(false);
       setForm({ title: "", description: "", category: "general", siteId: "", severity: "medium" });
+      setPreEnhance(null);
+      setEnhanceNote("");
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -146,10 +191,38 @@ function IncidentsInner() {
         )}
       </Card>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Report incident">
+      <Modal open={open} onClose={closeModal} title="Report incident">
         <form onSubmit={report} className="space-y-4">
           <div><Label>Title</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></div>
-          <div><Label>Description</Label><Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+          <div>
+            <div className="flex items-end justify-between">
+              <Label>Description</Label>
+              <div className="mb-1.5 flex items-center gap-1">
+                {preEnhance !== null && (
+                  <button
+                    type="button"
+                    onClick={undoEnhance}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-ink-500 transition hover:bg-ink-100 hover:text-ink-700"
+                    title="Restore original text"
+                  >
+                    <Undo2 size={13} /> Undo
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={enhance}
+                  disabled={enhancing}
+                  className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Let AI rewrite this description"
+                >
+                  <Wand2 size={13} className={enhancing ? "animate-pulse" : ""} />
+                  {enhancing ? "Enhancing…" : "Enhance with AI"}
+                </button>
+              </div>
+            </div>
+            <Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            {enhanceNote && <p className="mt-1 text-xs text-ink-400">{enhanceNote}</p>}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Site</Label>
@@ -177,7 +250,7 @@ function IncidentsInner() {
           </p>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="button" variant="secondary" onClick={closeModal}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? "Analyzing…" : "Submit"}</Button>
           </div>
         </form>
