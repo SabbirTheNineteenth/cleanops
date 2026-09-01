@@ -59,6 +59,13 @@ export const incidentWorkSchema = z.object({
   resolutionNote: z.string().optional(),
 });
 
+export const enhanceTextSchema = z.object({
+  text: z.string().min(3, "Write a few words first"),
+  title: z.string().optional().default(""),
+  category: z.string().optional().default(""),
+  siteName: z.string().optional().default(""),
+});
+
 export type SiteInput = z.infer<typeof siteSchema>;
 export type WorkerInput = z.infer<typeof workerSchema>;
 export type IncidentInput = z.infer<typeof incidentSchema>;

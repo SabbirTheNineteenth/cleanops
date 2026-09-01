@@ -96,6 +96,94 @@ function heuristic(ctx: IncidentContext): IncidentAI {
   };
 }
 
+export interface EnhanceContext {
+  text: string;
+  title?: string;
+  category?: string;
+  siteName?: string;
+}
+
+export interface EnhancedText {
+  text: string;
+  source: "openrouter" | "heuristic";
+}
+
+function tidyText(input: string): string {
+  const cleaned = input.replace(/\s+/g, " ").trim();
+  if (!cleaned) return cleaned;
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1));
+  const joined = sentences.join(" ");
+  return /[.!?]$/.test(joined) ? joined : `${joined}.`;
+}
+
+export async function enhanceIncidentText(
+  ctx: EnhanceContext,
+): Promise<EnhancedText> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const fallback: EnhancedText = { text: tidyText(ctx.text), source: "heuristic" };
+  if (!apiKey) return fallback;
+
+  const model =
+    process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
+  const prompt = `Rewrite the following incident note as a clear, professional facilities-operations report.
+Rules:
+- Keep every fact from the original. Do NOT invent details, causes, names, times, or measurements.
+- 1 to 3 short sentences, plain prose, no bullet points, no headings, no quotes.
+- Fix grammar and spelling. Be specific about what is wrong, where, and the visible risk if the note mentions one.
+- Reply with the rewritten note only, nothing else.
+
+Context (for tone only): title "${ctx.title || "N/A"}", category "${ctx.category || "N/A"}", site "${ctx.siteName || "N/A"}".
+
+Note:
+${ctx.text}`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You rewrite short operational notes. Output only the rewritten note as plain text.",
+          },
+          { role: "user", content: prompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      console.warn(`[ai] enhance OpenRouter ${res.status}; using tidy fallback`);
+      return fallback;
+    }
+
+    const data = await res.json();
+    const raw: string = data?.choices?.[0]?.message?.content ?? "";
+    const text = raw
+      .replace(/```/g, "")
+      .replace(/^["'\s]+|["'\s]+$/g, "")
+      .trim()
+      .slice(0, 1000);
+    if (!text) return fallback;
+
+    return { text, source: "openrouter" };
+  } catch (err) {
+    console.warn("[ai] enhance call failed; using tidy fallback:", err);
+    return fallback;
+  }
+}
+
 export async function analyzeIncident(ctx: IncidentContext): Promise<IncidentAI> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return heuristic(ctx);

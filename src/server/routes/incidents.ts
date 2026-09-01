@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { incidents, sites, workers, users } from "@/db/schema";
-import { incidentSchema, incidentUpdateSchema, incidentWorkSchema } from "@/lib/validation";
-import { analyzeIncident } from "../ai";
+import { incidentSchema, incidentUpdateSchema, incidentWorkSchema, enhanceTextSchema } from "@/lib/validation";
+import { analyzeIncident, enhanceIncidentText } from "../ai";
 import { requireAuth, requireAdmin, type Variables } from "../middleware";
 
 export const incidentRoutes = new Hono<{ Variables: Variables }>();
@@ -71,6 +71,15 @@ incidentRoutes.get("/:id", async (c) => {
   const row = await withJoins().where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
   return c.json({ incident: row });
+});
+
+incidentRoutes.post("/enhance", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = enhanceTextSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const result = await enhanceIncidentText(parsed.data);
+  return c.json(result);
 });
 
 incidentRoutes.post("/", async (c) => {
