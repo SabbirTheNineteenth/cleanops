@@ -171,6 +171,7 @@ All routes are served under `/api`. Every route except register and login requir
 | GET | `/incidents/mine` | auth | Incidents assigned to the signed-in worker. |
 | GET | `/incidents/:id` | auth | Incident detail. |
 | POST | `/incidents` | auth | Report an incident (runs AI analysis). |
+| POST | `/incidents/enhance` | auth | Rewrite an incident description with AI. |
 | POST | `/incidents/:id/analyze` | admin | Re-run AI analysis. |
 | PATCH | `/incidents/:id` | admin | Assign, change status/severity, or resolve. |
 | PATCH | `/incidents/:id/work` | auth | Assigned worker updates status and work details. |
