@@ -234,11 +234,11 @@ export default function LoginPage() {
               {loading ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
             </Button>
 
-            <p className="text-center text-xs text-ink-400">
-              {mode === "login"
-                ? "New accounts need an administrator to approve them before the first sign-in."
-                : "No email confirmation needed — an administrator approves your account."}
-            </p>
+            {mode === "login" && (
+              <p className="text-center text-xs text-ink-400">
+                New accounts need an administrator to approve them before the first sign-in.
+              </p>
+            )}
           </form>
         </div>
       </div>
