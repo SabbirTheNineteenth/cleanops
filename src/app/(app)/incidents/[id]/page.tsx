@@ -333,6 +333,7 @@ export default function IncidentDetailPage() {
             incidentId={id}
             currentUserId={userId}
             isAdmin={isAdmin}
+            canPost={canWork}
             onChange={() => setPulse((value) => value + 1)}
           />
         </div>

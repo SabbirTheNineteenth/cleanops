@@ -20,11 +20,13 @@ export function CommentThread({
   incidentId,
   currentUserId,
   isAdmin,
+  canPost = true,
   onChange,
 }: {
   incidentId: string | number;
   currentUserId: number | null;
   isAdmin: boolean;
+  canPost?: boolean;
   onChange?: () => void;
 }) {
   const [items, setItems] = useState<Comment[] | null>(null);
@@ -149,22 +151,28 @@ export function CommentThread({
         )}
       </div>
 
-      <form onSubmit={submit} className="border-t border-ink-100 bg-ink-50/40 px-5 py-4">
-        <Textarea
-          rows={3}
-          value={body}
-          maxLength={2000}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Add an update, a question, or a handover note…"
-        />
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-ink-400">{body.length}/2000</span>
-          <Button type="submit" disabled={busy || body.trim().length < 2}>
-            <Send size={14} /> {busy ? "Posting…" : "Post comment"}
-          </Button>
-        </div>
-      </form>
+      {canPost ? (
+        <form onSubmit={submit} className="border-t border-ink-100 bg-ink-50/40 px-5 py-4">
+          <Textarea
+            rows={3}
+            value={body}
+            maxLength={2000}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Add an update, a question, or a handover note…"
+          />
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-ink-400">{body.length}/2000</span>
+            <Button type="submit" disabled={busy || body.trim().length < 2}>
+              <Send size={14} /> {busy ? "Posting…" : "Post comment"}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <p className="border-t border-ink-100 bg-ink-50/40 px-5 py-3 text-xs text-ink-400">
+          Read-only — only an admin, the reporter, or the assigned worker can post here.
+        </p>
+      )}
     </Card>
   );
 }

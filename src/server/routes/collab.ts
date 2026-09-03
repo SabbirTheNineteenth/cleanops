@@ -20,6 +20,9 @@ export const collabRoutes = new Hono<{ Variables: Variables }>();
 
 collabRoutes.use("*", requireAuth);
 
+const NOT_INVOLVED =
+  "Only an admin, the reporter, or the assigned worker can update this incident";
+
 interface Actor {
   id: number;
   name: string;
@@ -124,6 +127,7 @@ collabRoutes.post("/:id/comments", async (c) => {
   const actor = await loadActor(c);
   const incident = await loadIncident(id);
   if (!incident) return c.json({ error: "Incident not found" }, 404);
+  if (!isOwner(incident, actor)) return c.json({ error: NOT_INVOLVED }, 403);
 
   if (await overLimit("comment", RATE_RULES.comment, { subject: `user:${actor.id}` })) {
     return c.json({ error: retryAfterMessage(RATE_RULES.comment) }, 429);
@@ -264,7 +268,7 @@ collabRoutes.post("/:id/tasks", async (c) => {
   const incident = await loadIncident(id);
   if (!incident) return c.json({ error: "Incident not found" }, 404);
   if (!isOwner(incident, actor)) {
-    return c.json({ error: "Only an admin or the assigned worker can edit this checklist" }, 403);
+    return c.json({ error: NOT_INVOLVED }, 403);
   }
 
   const body = await c.req.json().catch(() => ({}));
@@ -303,7 +307,7 @@ collabRoutes.patch("/:id/tasks/:taskId", async (c) => {
   const incident = await loadIncident(id);
   if (!incident) return c.json({ error: "Incident not found" }, 404);
   if (!isOwner(incident, actor)) {
-    return c.json({ error: "Only an admin or the assigned worker can edit this checklist" }, 403);
+    return c.json({ error: NOT_INVOLVED }, 403);
   }
 
   const body = await c.req.json().catch(() => ({}));
@@ -349,7 +353,7 @@ collabRoutes.delete("/:id/tasks/:taskId", async (c) => {
   const incident = await loadIncident(id);
   if (!incident) return c.json({ error: "Incident not found" }, 404);
   if (!isOwner(incident, actor)) {
-    return c.json({ error: "Only an admin or the assigned worker can edit this checklist" }, 403);
+    return c.json({ error: NOT_INVOLVED }, 403);
   }
 
   const row = await db
