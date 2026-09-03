@@ -96,6 +96,40 @@ export function FilterSelect({
   );
 }
 
+export function SortSelect({
+  sort,
+  dir,
+  options,
+  onChange,
+  className,
+}: {
+  sort: string;
+  dir: "asc" | "desc";
+  options: { value: string; label: string }[];
+  onChange: (sort: string, dir: "asc" | "desc") => void;
+  className?: string;
+}) {
+  const current = `${sort}:${dir}`;
+  const known = options.some((option) => option.value === current);
+  return (
+    <Select
+      aria-label="Sort order"
+      value={known ? current : options[0]?.value ?? ""}
+      onChange={(e) => {
+        const [nextSort, nextDir] = e.target.value.split(":");
+        onChange(nextSort ?? sort, nextDir === "asc" ? "asc" : "desc");
+      }}
+      className={clsx("w-auto min-w-[150px] py-2 text-xs", className)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 export function SortHeader({
   label,
   sortKey,

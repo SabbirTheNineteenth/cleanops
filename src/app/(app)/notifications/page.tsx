@@ -16,7 +16,7 @@ import { deleteJSON, postJSON } from "@/lib/api";
 import { useList } from "@/lib/useList";
 import { timeAgo } from "@/lib/time";
 import { Button, Card, EmptyState, Skeleton, Tone } from "@/components/ui";
-import { FilterSelect, ListToolbar, Pagination } from "@/components/list";
+import { FilterSelect, ListToolbar, Pagination, SortSelect } from "@/components/list";
 import { PageHeader } from "@/components/PageHeader";
 
 interface Note {
@@ -39,6 +39,11 @@ const TYPE_OPTIONS = [
   { value: "approval", label: "Approvals" },
   { value: "security", label: "Security" },
   { value: "info", label: "General" },
+];
+
+const SORT_OPTIONS = [
+  { value: "createdAt:desc", label: "Newest first" },
+  { value: "createdAt:asc", label: "Oldest first" },
 ];
 
 const ICONS: Record<string, { icon: typeof Bell; tone: string }> = {
@@ -124,6 +129,15 @@ export default function NotificationsPage() {
             value={list.filters.type ?? ""}
             onChange={(v) => list.setFilter("type", v)}
             options={TYPE_OPTIONS}
+          />
+          <SortSelect
+            sort={list.sort}
+            dir={list.dir}
+            options={SORT_OPTIONS}
+            onChange={(sort, dir) => {
+              list.setSort(sort);
+              list.setDir(dir);
+            }}
           />
         </ListToolbar>
 

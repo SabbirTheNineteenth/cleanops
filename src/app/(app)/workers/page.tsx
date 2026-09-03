@@ -6,7 +6,7 @@ import { getJSON, postJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 import { useList } from "@/lib/useList";
 import { Button, Card, Input, Label, Badge, EmptyState, Tone } from "@/components/ui";
-import { FilterSelect, ListToolbar, Pagination } from "@/components/list";
+import { FilterSelect, ListToolbar, Pagination, SortSelect } from "@/components/list";
 import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
 import { AssignWorkerModal } from "@/components/admin/AssignWorkerModal";
@@ -46,6 +46,15 @@ const STATUS_OPTIONS = [
 const LINK_OPTIONS = [
   { value: "1", label: "Has account" },
   { value: "0", label: "No account" },
+];
+
+const SORT_OPTIONS = [
+  { value: "name:asc", label: "Name A–Z" },
+  { value: "name:desc", label: "Name Z–A" },
+  { value: "openIncidents:desc", label: "Busiest first" },
+  { value: "openIncidents:asc", label: "Lightest load" },
+  { value: "role:asc", label: "Role A–Z" },
+  { value: "createdAt:desc", label: "Newest first" },
 ];
 
 export default function WorkersPage() {
@@ -167,6 +176,15 @@ export default function WorkersPage() {
             value={list.filters.linked ?? ""}
             onChange={(v) => list.setFilter("linked", v)}
             options={LINK_OPTIONS}
+          />
+          <SortSelect
+            sort={list.sort}
+            dir={list.dir}
+            options={SORT_OPTIONS}
+            onChange={(sort, dir) => {
+              list.setSort(sort);
+              list.setDir(dir);
+            }}
           />
         </ListToolbar>
         <div className="grid gap-4 p-4 md:grid-cols-2">
