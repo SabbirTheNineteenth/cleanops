@@ -4,8 +4,6 @@ import Link from "next/link";
 import {
   Clock,
   Lock,
-  MailCheck,
-  MailWarning,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -28,7 +26,6 @@ interface Account {
   role: "admin" | "user";
   status: "active" | "banned" | "pending";
   createdAt: string;
-  emailVerified: boolean;
   workerId: number | null;
   workerRole: string | null;
 }
@@ -46,11 +43,6 @@ const STATUS_OPTIONS = [
 const ROLE_OPTIONS = [
   { value: "admin", label: "Admin" },
   { value: "user", label: "User" },
-];
-
-const VERIFIED_OPTIONS = [
-  { value: "1", label: "Email verified" },
-  { value: "0", label: "Not verified" },
 ];
 
 export default function MembersPage() {
@@ -174,12 +166,6 @@ export default function MembersPage() {
             onChange={(v) => list.setFilter("role", v)}
             options={ROLE_OPTIONS}
           />
-          <FilterSelect
-            label="Any email state"
-            value={list.filters.verified ?? ""}
-            onChange={(v) => list.setFilter("verified", v)}
-            options={VERIFIED_OPTIONS}
-          />
         </ListToolbar>
 
         <TableShell
@@ -209,14 +195,7 @@ export default function MembersPage() {
                       <p className="font-medium text-ink-800">
                         {a.name} {isSelf && <span className="text-xs text-ink-400">(you)</span>}
                       </p>
-                      <p className="flex items-center gap-1 text-xs text-ink-400">
-                        {a.emailVerified ? (
-                          <MailCheck size={12} className="text-emerald-500" />
-                        ) : (
-                          <MailWarning size={12} className="text-amber-500" />
-                        )}
-                        {a.email}
-                      </p>
+                      <p className="text-xs text-ink-400">{a.email}</p>
                     </div>
                   </div>
                 </td>

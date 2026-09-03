@@ -6,7 +6,6 @@ import type { SessionPayload } from "./auth";
 export interface SessionAccount extends SessionPayload {
   id?: number;
   status?: string;
-  emailVerified?: boolean;
   createdAt?: string;
 }
 

@@ -5,10 +5,9 @@ import {
   KeyRound,
   Laptop,
   LogOut,
-  MailCheck,
-  MailWarning,
   Monitor,
   ShieldCheck,
+  UserCheck,
   UserCog,
 } from "lucide-react";
 import { deleteJSON, getJSON, patchJSON, postJSON } from "@/lib/api";
@@ -50,7 +49,6 @@ export default function AccountPage() {
   const [sessionErr, setSessionErr] = useState("");
   const [sessionMsg, setSessionMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [verifyMsg, setVerifyMsg] = useState("");
 
   useEffect(() => {
     if (user) setName(user.name ?? "");
@@ -150,17 +148,6 @@ export default function AccountPage() {
     }
   }
 
-  async function resendVerification() {
-    if (!user?.email) return;
-    setVerifyMsg("");
-    try {
-      const res = await postJSON<{ message: string }>("/auth/verify/resend", { email: user.email });
-      setVerifyMsg(res.message ?? "Confirmation link sent.");
-    } catch (err) {
-      setVerifyMsg(err instanceof Error ? err.message : "Could not send the link");
-    }
-  }
-
   if (loading) return <Skeleton className="h-64" />;
 
   const activeSessions = (sessions ?? []).filter((s) => s.active);
@@ -184,30 +171,11 @@ export default function AccountPage() {
         }
       />
 
-      {user && !user.emailVerified && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <MailWarning size={18} className="mt-0.5 shrink-0 text-amber-600" />
-            <div>
-              <p className="text-sm font-semibold text-amber-900">Email not confirmed yet</p>
-              <p className="text-xs text-amber-800">
-                Confirm {user.email} so password resets and alerts can reach you.
-              </p>
-              {verifyMsg && <p className="mt-1 text-xs font-medium text-amber-900">{verifyMsg}</p>}
-            </div>
-          </div>
-          <Button variant="secondary" className="text-xs" onClick={resendVerification}>
-            <MailCheck size={14} /> Resend link
-          </Button>
-        </div>
-      )}
-
-      {user?.emailVerified && (
+      {user?.createdAt && (
         <div className="flex items-center gap-2 text-xs text-ink-500">
-          <MailCheck size={14} className="text-emerald-600" />
+          <UserCheck size={14} className="text-emerald-600" />
           <span>
-            {user.email} confirmed
-            {user.createdAt ? ` · member since ${formatWhen(user.createdAt)}` : ""}
+            {user.email} · member since {formatWhen(user.createdAt)}
           </span>
         </div>
       )}
