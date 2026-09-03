@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Radar, ShieldCheck, Sparkles, Activity, MapPin, MailCheck } from "lucide-react";
+import { Radar, ShieldCheck, Sparkles, Activity, MapPin, UserCheck } from "lucide-react";
 import { postJSON } from "@/lib/api";
 import { Button, Input, Label } from "@/components/ui";
 import { PasswordHints, passwordScore } from "@/components/PasswordHints";
@@ -12,16 +12,26 @@ const FEATURES = [
   { icon: MapPin, title: "Sites & workforce", desc: "Manage client locations and assign the right field staff instantly." },
 ];
 
+const EMPTY_LOGIN = { email: "", password: "" };
+const EMPTY_REGISTER = { name: "", email: "", password: "" };
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [loginForm, setLoginForm] = useState(EMPTY_LOGIN);
+  const [registerForm, setRegisterForm] = useState(EMPTY_REGISTER);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [resending, setResending] = useState(false);
+
+  function switchMode(next: "login" | "register") {
+    if (next === mode) return;
+    setMode(next);
+    setError("");
+    setNotice("");
+    setLoginForm(EMPTY_LOGIN);
+    setRegisterForm(EMPTY_REGISTER);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,22 +40,22 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (mode === "login") {
-        await postJSON("/auth/login", { email, password });
+        await postJSON("/auth/login", loginForm);
         router.push("/dashboard");
         router.refresh();
       } else {
         const res = await postJSON<{ pending?: boolean; message?: string }>(
           "/auth/register",
-          { name, email, password },
+          registerForm,
         );
 
+        setRegisterForm(EMPTY_REGISTER);
+        setLoginForm(EMPTY_LOGIN);
+        setMode("login");
         setNotice(
           res.message ??
-            "Registration received. Confirm your email, then an administrator will review your account.",
+            "Registration received. An administrator will review your account shortly.",
         );
-        setMode("login");
-        setName("");
-        setPassword("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -54,24 +64,7 @@ export default function LoginPage() {
     }
   }
 
-  async function resend() {
-    if (!email) {
-      setError("Enter your email address first.");
-      return;
-    }
-    setResending(true);
-    setError("");
-    try {
-      const res = await postJSON<{ message: string }>("/auth/verify/resend", { email });
-      setNotice(res.message ?? "If that address needs confirming, a new link is on its way.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the link");
-    } finally {
-      setResending(false);
-    }
-  }
-
-  const weakPassword = mode === "register" && passwordScore(password) < 4;
+  const weakPassword = mode === "register" && passwordScore(registerForm.password) < 4;
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -143,63 +136,92 @@ export default function LoginPage() {
 
           <div className="mt-6 flex rounded-lg bg-ink-100 p-1 text-sm font-medium">
             <button
-              onClick={() => { setMode("login"); setError(""); setNotice(""); }}
+              type="button"
+              onClick={() => switchMode("login")}
               className={`flex-1 rounded-md py-1.5 transition ${mode === "login" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"}`}
             >
               Sign in
             </button>
             <button
-              onClick={() => { setMode("register"); setError(""); setNotice(""); }}
+              type="button"
+              onClick={() => switchMode("register")}
               className={`flex-1 rounded-md py-1.5 transition ${mode === "register" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"}`}
             >
               Register
             </button>
           </div>
 
-          <form onSubmit={submit} className="mt-5 space-y-4">
+          <form key={mode} onSubmit={submit} className="mt-5 space-y-4">
             {notice && (
               <p className="flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                <MailCheck size={16} className="mt-0.5 shrink-0" />
+                <UserCheck size={16} className="mt-0.5 shrink-0" />
                 {notice}
               </p>
             )}
-            {mode === "register" && (
-              <div>
-                <Label>Full name</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Jane Doe"
-                  autoComplete="name"
-                  minLength={2}
-                  maxLength={80}
-                  required
-                />
-              </div>
+            {mode === "register" ? (
+              <>
+                <div>
+                  <Label>Full name</Label>
+                  <Input
+                    value={registerForm.name}
+                    onChange={(e) => setRegisterForm({ ...registerForm, name: e.target.value })}
+                    placeholder="Jane Doe"
+                    autoComplete="name"
+                    minLength={2}
+                    maxLength={80}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={registerForm.email}
+                    onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                    placeholder="you@company.com"
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Password</Label>
+                  <Input
+                    type="password"
+                    value={registerForm.password}
+                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <PasswordHints value={registerForm.password} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                    placeholder="you@company.com"
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Password</Label>
+                  <Input
+                    type="password"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+              </>
             )}
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                autoComplete="email"
-                required
-              />
-            </div>
-            <div>
-              <Label>Password</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-                required
-              />
-              {mode === "register" && <PasswordHints value={password} />}
-            </div>
 
             {error && (
               <p className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-600/20">
@@ -213,15 +235,9 @@ export default function LoginPage() {
             </Button>
 
             <p className="text-center text-xs text-ink-400">
-              Waiting on a confirmation email?{" "}
-              <button
-                type="button"
-                onClick={resend}
-                disabled={resending}
-                className="font-semibold text-brand-600 transition hover:text-brand-700 disabled:opacity-50"
-              >
-                {resending ? "Sending…" : "Resend the link"}
-              </button>
+              {mode === "login"
+                ? "New accounts need an administrator to approve them before the first sign-in."
+                : "No email confirmation needed — an administrator approves your account."}
             </p>
           </form>
         </div>
