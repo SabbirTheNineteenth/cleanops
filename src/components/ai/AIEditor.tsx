@@ -19,6 +19,13 @@ interface EnhanceResult {
   source: "openrouter" | "heuristic" | "unavailable";
   mode: Mode;
   label: string;
+  model?: string;
+}
+
+function shortModel(id?: string): string {
+  if (!id) return "";
+  const last = id.split("/").pop() ?? id;
+  return last.replace(":free", "");
 }
 
 interface Option {
@@ -121,7 +128,10 @@ export function AIEditor({
       setApplied({ option, text: res.text });
       setNote(
         res.source === "openrouter"
-          ? { text: `Applied — ${res.label}`, warn: false }
+          ? {
+              text: `Applied — ${res.label}${res.model ? ` · ${shortModel(res.model)}` : ""}`,
+              warn: false,
+            }
           : {
               text: `${res.label}: cleaned up locally (AI key not configured)`,
               warn: true,
