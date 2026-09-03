@@ -1,19 +1,30 @@
 import { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
-import { z } from "zod";
+import { and, eq, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { users, workers } from "@/db/schema";
+import { incidents, users, workers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth";
-import { adminCreateUserSchema } from "@/lib/validation";
+import { adminCreateUserSchema, userUpdateSchema } from "@/lib/validation";
+import { sqlNow } from "@/lib/time";
+import { logAudit, notify } from "../activity";
+import { revokeOtherSessions } from "../sessions";
+import {
+  listMeta,
+  orderFor,
+  parseListQuery,
+  pickEnum,
+  searchPattern,
+} from "../query";
+import { csvResponse, stamped, toCsv } from "../csv";
 import { requireAuth, requireAdmin, type Variables } from "../middleware";
 
 export const userRoutes = new Hono<{ Variables: Variables }>();
 
 userRoutes.use("*", requireAuth);
+userRoutes.use("*", requireAdmin);
 
-const userStatusSchema = z.object({
-  status: z.enum(["active", "banned"]),
-});
+const SORTABLE = ["createdAt", "name", "email", "role", "status"] as const;
+const STATUSES = ["active", "banned", "pending"] as const;
+const ROLES = ["admin", "user"] as const;
 
 const publicUserCols = {
   id: users.id,
@@ -21,7 +32,16 @@ const publicUserCols = {
   email: users.email,
   role: users.role,
   status: users.status,
+  emailVerifiedAt: users.emailVerifiedAt,
   createdAt: users.createdAt,
+};
+
+const SORT_COLUMNS: Record<string, unknown> = {
+  createdAt: users.createdAt,
+  name: users.name,
+  email: users.email,
+  role: users.role,
+  status: users.status,
 };
 
 async function ensureWorkerForUser(u: { id: number; name: string; email: string; role: string }) {
@@ -38,82 +58,205 @@ async function ensureWorkerForUser(u: { id: number; name: string; email: string;
     .where(eq(workers.email, u.email.toLowerCase()))
     .get();
   if (emailTaken) {
-    await db.update(workers).set({ userId: u.id }).where(eq(workers.id, emailTaken.id)).run();
+    await db.update(workers).set({ userId: u.id }).where(eq(workers.id, emailTaken.id));
     return;
   }
-  await db.insert(workers)
-    .values({
-      userId: u.id,
-      name: u.name,
-      email: u.email.toLowerCase(),
-      role: "Field Technician",
-      status: "available",
-    })
-    .run();
+  await db.insert(workers).values({
+    userId: u.id,
+    name: u.name,
+    email: u.email.toLowerCase(),
+    role: "Field Technician",
+    status: "available",
+  });
 }
 
-userRoutes.get("/", requireAdmin, async (c) => {
-  const rows = await db
-    .select(publicUserCols)
-    .from(users)
-    .orderBy(desc(users.createdAt))
-    .all();
-  return c.json({ users: rows });
+function conditionsFor(query: Record<string, string>, search: string) {
+  const conditions = [];
+  const status = pickEnum(query.status, STATUSES);
+  const role = pickEnum(query.role, ROLES);
+  if (status) conditions.push(eq(users.status, status));
+  if (role) conditions.push(eq(users.role, role));
+  if (query.verified === "1") conditions.push(sql`${users.emailVerifiedAt} is not null`);
+  if (query.verified === "0") conditions.push(sql`${users.emailVerifiedAt} is null`);
+  if (search) {
+    const pattern = searchPattern(search);
+    conditions.push(or(like(users.name, pattern), like(users.email, pattern))!);
+  }
+  return conditions;
+}
+
+userRoutes.get("/", async (c) => {
+  const query = parseListQuery(c, { sortable: SORTABLE, defaultSort: "createdAt" });
+  const conditions = conditionsFor(c.req.query(), query.q);
+  const where = conditions.length ? and(...conditions) : undefined;
+  const column = (SORT_COLUMNS[query.sort] ?? users.createdAt) as never;
+
+  const [rows, countRow, tally] = await Promise.all([
+    db
+      .select({
+        ...publicUserCols,
+        workerId: workers.id,
+        workerRole: workers.role,
+      })
+      .from(users)
+      .leftJoin(workers, eq(workers.userId, users.id))
+      .where(where)
+      .orderBy(orderFor(column, query.dir))
+      .limit(query.pageSize)
+      .offset(query.offset)
+      .all(),
+    db.select({ total: sql<number>`count(*)` }).from(users).where(where).get(),
+    db
+      .select({
+        pending: sql<number>`sum(case when ${users.status} = 'pending' then 1 else 0 end)`,
+        banned: sql<number>`sum(case when ${users.status} = 'banned' then 1 else 0 end)`,
+        admins: sql<number>`sum(case when ${users.role} = 'admin' then 1 else 0 end)`,
+      })
+      .from(users)
+      .get(),
+  ]);
+
+  const data = rows.map((row) => ({ ...row, emailVerified: Boolean(row.emailVerifiedAt) }));
+
+  if (query.isExport) {
+    const csv = toCsv(
+      ["ID", "Name", "Email", "Role", "Status", "Email verified", "Worker profile", "Created"],
+      data.map((row) => [
+        row.id,
+        row.name,
+        row.email,
+        row.role,
+        row.status,
+        row.emailVerified ? "yes" : "no",
+        row.workerId ? row.workerRole ?? "yes" : "no",
+        row.createdAt,
+      ]),
+    );
+    await logAudit(c, { action: "export", entity: "user", detail: `${data.length} rows` });
+    return csvResponse(c, stamped("members"), csv);
+  }
+
+  return c.json({
+    data,
+    meta: listMeta(query, Number(countRow?.total ?? 0)),
+    summary: {
+      pending: Number(tally?.pending ?? 0),
+      banned: Number(tally?.banned ?? 0),
+      admins: Number(tally?.admins ?? 0),
+    },
+  });
 });
 
-userRoutes.post("/", requireAdmin, async (c) => {
+userRoutes.post("/", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = adminCreateUserSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  const { name, email, password, role } = parsed.data;
+  const { name, password, role } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
 
-  const existing = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, email.toLowerCase()))
-    .get();
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).get();
   if (existing) return c.json({ error: "Email already registered" }, 409);
 
   const passwordHash = await hashPassword(password);
   const row = await db
     .insert(users)
-    .values({ name, email: email.toLowerCase(), passwordHash, role, status: "active" })
+    .values({
+      name,
+      email,
+      passwordHash,
+      role,
+      status: "active",
+      emailVerifiedAt: sqlNow(),
+    })
     .returning(publicUserCols)
     .get();
   await ensureWorkerForUser(row);
+  await logAudit(c, {
+    action: "create",
+    entity: "user",
+    entityId: row.id,
+    detail: `${name} as ${role}`,
+  });
   return c.json({ user: row }, 201);
 });
 
-userRoutes.patch("/:id", requireAdmin, async (c) => {
+userRoutes.patch("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const me = c.get("user");
   const body = await c.req.json().catch(() => ({}));
-  const parsed = userStatusSchema.safeParse(body);
+  const parsed = userUpdateSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const { status, role } = parsed.data;
+  if (!status && !role) return c.json({ error: "Nothing to update" }, 400);
 
   if (Number(me.sub) === id) {
-    return c.json({ error: "You cannot change your own account status" }, 400);
+    return c.json({ error: "You cannot change your own account" }, 400);
   }
 
   const target = await db.select().from(users).where(eq(users.id, id)).get();
   if (!target) return c.json({ error: "User not found" }, 404);
-  if (target.role === "admin" && parsed.data.status === "banned") {
+  if (target.role === "admin" && status === "banned") {
     return c.json({ error: "Admin accounts cannot be banned" }, 400);
   }
+  if (target.role === "admin" && role === "user") {
+    const adminRow = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(users)
+      .where(and(eq(users.role, "admin"), eq(users.status, "active")))
+      .get();
+    if (Number(adminRow?.total ?? 0) <= 1) {
+      return c.json({ error: "Keep at least one active admin" }, 400);
+    }
+  }
 
-  const row = await db
-    .update(users)
-    .set({ status: parsed.data.status })
-    .where(eq(users.id, id))
-    .returning(publicUserCols)
-    .get();
+  const patch: Record<string, unknown> = {};
+  if (status) patch.status = status;
+  if (role) patch.role = role;
 
-  if (parsed.data.status === "active") await ensureWorkerForUser(row);
+  const row = await db.update(users).set(patch).where(eq(users.id, id)).returning(publicUserCols).get();
+
+  if (status === "active") {
+    await ensureWorkerForUser(row);
+    if (target.status !== "active") {
+      await notify([
+        {
+          userId: row.id,
+          type: "approval",
+          title: "Your account is approved",
+          body: "You can sign in and start reporting incidents.",
+          link: "/dashboard",
+        },
+      ]);
+    }
+  }
+  if (status === "banned") {
+    await revokeOtherSessions(row.id, null);
+  }
+  if (role && role !== target.role) {
+    await notify([
+      {
+        userId: row.id,
+        type: "security",
+        title: `Your role is now ${role}`,
+        body: "An administrator updated your access level.",
+        link: "/account",
+      },
+    ]);
+  }
+
+  await logAudit(c, {
+    action: "update",
+    entity: "user",
+    entityId: id,
+    detail: [status ? `status=${status}` : null, role ? `role=${role}` : null]
+      .filter(Boolean)
+      .join(" "),
+  });
 
   return c.json({ user: row });
 });
 
-userRoutes.delete("/:id", requireAdmin, async (c) => {
+userRoutes.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const me = c.get("user");
   if (Number(me.sub) === id) {
@@ -124,6 +267,25 @@ userRoutes.delete("/:id", requireAdmin, async (c) => {
   if (target.role === "admin") {
     return c.json({ error: "Admin accounts cannot be deleted" }, 400);
   }
-  await db.delete(users).where(eq(users.id, id)).run();
+
+  const reported = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(incidents)
+    .where(eq(incidents.reportedBy, id))
+    .get();
+  if (Number(reported?.total ?? 0) > 0) {
+    return c.json(
+      { error: "This member has reported incidents — ban the account instead of deleting it" },
+      409,
+    );
+  }
+
+  await db.delete(users).where(eq(users.id, id));
+  await logAudit(c, {
+    action: "delete",
+    entity: "user",
+    entityId: id,
+    detail: target.email,
+  });
   return c.json({ ok: true });
 });
