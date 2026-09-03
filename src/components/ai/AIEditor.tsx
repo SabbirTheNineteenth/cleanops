@@ -118,7 +118,7 @@ export function AIEditor({
 
       if (res.source === "unavailable") {
         setNote({
-          text: "Translation needs OPENROUTER_API_KEY on the server.",
+          text: "Translation is unavailable right now — try Style or Fix.",
           warn: true,
         });
         return;
@@ -133,7 +133,7 @@ export function AIEditor({
               warn: false,
             }
           : {
-              text: `${res.label}: cleaned up locally (AI key not configured)`,
+              text: `${res.label}: cleaned up locally`,
               warn: true,
             },
       );
