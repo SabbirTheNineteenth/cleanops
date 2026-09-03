@@ -1,8 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ClipboardList, Wrench, MapPin, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { ClipboardList, Wrench, MapPin, CheckCircle2, ArrowUpRight } from "lucide-react";
 import { getJSON, patchJSON } from "@/lib/api";
-import { Card, Button, Label, Select, Textarea, SeverityBadge, StatusBadge, EmptyState, Skeleton } from "@/components/ui";
+import {
+  Card,
+  Button,
+  Label,
+  Select,
+  Textarea,
+  SeverityBadge,
+  StatusBadge,
+  SlaBadge,
+  Skeleton,
+} from "@/components/ui";
 import { Modal } from "@/components/Modal";
 
 interface MyIncident {
@@ -15,7 +26,9 @@ interface MyIncident {
   siteName: string | null;
   aiSuggestedAction: string | null;
   resolutionNote: string | null;
+  dueAt: string | null;
   updatedAt: string;
+  sla: { label: string; tone: string; state: string };
 }
 
 export function MyWork() {
@@ -27,7 +40,7 @@ export function MyWork() {
   const [saving, setSaving] = useState(false);
 
   const load = () =>
-    getJSON<{ incidents: MyIncident[] }>("/incidents/mine").then((d) => setItems(d.incidents));
+    getJSON<{ data: MyIncident[] }>("/incidents/mine").then((d) => setItems(d.data ?? []));
 
   useEffect(() => {
     load();
@@ -82,12 +95,19 @@ export function MyWork() {
             <div key={i.id} className="rounded-xl border border-ink-100 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-ink-800">{i.title}</p>
+                  <Link
+                    href={`/incidents/${i.id}`}
+                    className="inline-flex items-center gap-1 truncate font-medium text-ink-800 hover:text-brand-700"
+                  >
+                    {i.title}
+                    <ArrowUpRight size={13} className="shrink-0 text-ink-400" />
+                  </Link>
                   <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-400">
                     <MapPin size={12} /> {i.siteName ?? "—"}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <SlaBadge sla={i.sla} />
                   <SeverityBadge value={i.severity} />
                   <StatusBadge value={i.status} />
                 </div>

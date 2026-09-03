@@ -40,8 +40,8 @@ export function AssignWorkerModal({
     setError("");
     setSiteId("");
     setWorkerId(fixedWorkerId ? String(fixedWorkerId) : "");
-    getJSON<{ workers: WorkerLite[] }>("/workers").then((d) => setWorkers(d.workers));
-    getJSON<{ sites: SiteLite[] }>("/sites").then((d) => setSites(d.sites));
+    getJSON<{ data: WorkerLite[] }>("/workers?pageSize=200").then((d) => setWorkers(d.data ?? []));
+    getJSON<{ data: SiteLite[] }>("/sites?pageSize=200&status=active").then((d) => setSites(d.data ?? []));
   }, [open, fixedWorkerId]);
 
   async function submit(e: React.FormEvent) {

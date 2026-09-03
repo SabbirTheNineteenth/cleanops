@@ -147,6 +147,40 @@ export function StatusBadge({ value }: { value: string }) {
   );
 }
 
+const TONE_STYLES: Record<string, string> = {
+  good: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  warn: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  bad: "bg-red-50 text-red-700 ring-red-600/20",
+  neutral: "bg-ink-100 text-ink-600 ring-ink-500/20",
+};
+
+export function SlaBadge({
+  sla,
+  className,
+}: {
+  sla?: { label: string; tone?: string; state?: string } | null;
+  className?: string;
+}) {
+  if (!sla || sla.state === "none") return <span className="text-xs text-ink-400">—</span>;
+  return (
+    <Badge className={clsx(TONE_STYLES[sla.tone ?? "neutral"], "normal-case", className)}>
+      {sla.label}
+    </Badge>
+  );
+}
+
+export function Tone({
+  tone = "neutral",
+  children,
+  className,
+}: {
+  tone?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <Badge className={clsx(TONE_STYLES[tone], "normal-case", className)}>{children}</Badge>;
+}
+
 export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx("skeleton rounded-lg", className)} />;
 }

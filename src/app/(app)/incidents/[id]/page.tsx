@@ -55,7 +55,7 @@ export default function IncidentDetailPage() {
   }
   useEffect(() => {
     load();
-    getJSON<{ workers: Worker[] }>("/workers").then((d) => setWorkers(d.workers));
+    getJSON<{ data: Worker[] }>("/workers?pageSize=200").then((d) => setWorkers(d.data ?? []));
 
   }, [id]);
 
