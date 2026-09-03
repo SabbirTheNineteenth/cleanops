@@ -43,6 +43,8 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 
 **Account controls.** Admins can create users with login credentials, ban and unban accounts, and reject pending registrations.
 
+**No pinned AI model.** Nothing is hard-coded to one model id. The server fetches OpenRouter's catalogue, keeps only genuinely free text-chat models, ranks them, and tries them in order until one returns a usable answer — falling back to a built-in seed list if the catalogue is unreachable and to the local heuristic if every attempt fails. `OPENROUTER_MODEL` is optional and acts as a preference list, not a lock.
+
 ---
 
 ## Tech stack
@@ -55,7 +57,7 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 | Auth | jose (JWT / HS256), bcryptjs, httpOnly cookies |
 | Validation | Zod |
 | UI | Tailwind CSS, lucide-react icons, Recharts |
-| AI | OpenRouter chat completions, with a local heuristic fallback |
+| AI | OpenRouter chat completions (auto-selected free models), with a local heuristic fallback |
 
 ---
 
@@ -70,7 +72,7 @@ Browser (React client components)
 Next.js route handler  ──►  Hono app
                               ├─ auth middleware (JWT verify + live DB status/role check)
                               ├─ route modules (auth, sites, workers, assignments, incidents, users, stats)
-                              ├─ AI module (OpenRouter → heuristic fallback)
+                              ├─ AI module (free-model discovery → OpenRouter → heuristic fallback)
                               └─ Drizzle ORM ──► libSQL (local file dev / Turso prod)
 ```
 
@@ -114,7 +116,7 @@ The migration step is idempotent — it creates tables if missing and adds newer
 | `DATABASE_AUTH_TOKEN` | Prod only | Turso auth token. Leave empty for a local file; required for a remote Turso URL. |
 | `JWT_SECRET` | Yes | Secret used to sign session tokens. Use a long random string in production. |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key. If empty, incident analysis uses the local heuristic. |
-| `OPENROUTER_MODEL` | No | Model id for analysis. Defaults to a free-tier Llama model. |
+| `OPENROUTER_MODEL` | No | Optional preferred model id, or a comma-separated preference list. Leave empty and the app auto-selects from OpenRouter's free models. |
 
 See `.env.example` for a ready-to-copy template.
 
