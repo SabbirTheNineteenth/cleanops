@@ -24,7 +24,6 @@ function stamp(hours: number): string {
 }
 
 async function wipe() {
-  await db.delete(schema.emailTokens).run();
   await db.delete(schema.authAttempts).run();
   await db.delete(schema.sessions).run();
   await db.delete(schema.auditLogs).run();
@@ -381,7 +380,6 @@ async function main() {
   const staffHash = await bcrypt.hash("user123", 10);
   const crewHash = await bcrypt.hash("worker123", 10);
   const memberHash = await bcrypt.hash("member123", 10);
-  const verifiedAt = stamp(-60 * DAY);
 
   const addUser = (values: typeof schema.users.$inferInsert) =>
     db.insert(schema.users).values(values).returning().get();
@@ -392,7 +390,6 @@ async function main() {
     passwordHash: adminHash,
     role: "admin",
     status: "active",
-    emailVerifiedAt: verifiedAt,
     createdAt: stamp(-90 * DAY),
   });
   const staff = await addUser({
@@ -401,7 +398,6 @@ async function main() {
     passwordHash: staffHash,
     role: "user",
     status: "active",
-    emailVerifiedAt: verifiedAt,
     createdAt: stamp(-88 * DAY),
   });
 
@@ -414,7 +410,6 @@ async function main() {
         passwordHash: crewHash,
         role: "user",
         status: "active",
-        emailVerifiedAt: verifiedAt,
         createdAt: stamp(-80 * DAY),
       }),
     );
@@ -423,10 +418,10 @@ async function main() {
   await db
     .insert(schema.users)
     .values([
-      { name: "Nadia Rahman", email: "nadia@cleanops.dev", passwordHash: memberHash, role: "user", status: "active", emailVerifiedAt: verifiedAt, createdAt: stamp(-30 * DAY) },
-      { name: "Leo Park", email: "leo@cleanops.dev", passwordHash: memberHash, role: "user", status: "active", emailVerifiedAt: verifiedAt, createdAt: stamp(-24 * DAY) },
-      { name: "Blocked Bob", email: "bob@cleanops.dev", passwordHash: memberHash, role: "user", status: "banned", emailVerifiedAt: verifiedAt, createdAt: stamp(-20 * DAY) },
-      { name: "Pending Pat", email: "pat@cleanops.dev", passwordHash: memberHash, role: "user", status: "pending", emailVerifiedAt: stamp(-46), createdAt: stamp(-2 * DAY) },
+      { name: "Nadia Rahman", email: "nadia@cleanops.dev", passwordHash: memberHash, role: "user", status: "active", createdAt: stamp(-30 * DAY) },
+      { name: "Leo Park", email: "leo@cleanops.dev", passwordHash: memberHash, role: "user", status: "active", createdAt: stamp(-24 * DAY) },
+      { name: "Blocked Bob", email: "bob@cleanops.dev", passwordHash: memberHash, role: "user", status: "banned", createdAt: stamp(-20 * DAY) },
+      { name: "Pending Pat", email: "pat@cleanops.dev", passwordHash: memberHash, role: "user", status: "pending", createdAt: stamp(-2 * DAY) },
     ])
     .run();
 
@@ -639,7 +634,6 @@ async function main() {
       { actorId: admin.id, actorEmail: admin.email, action: "create", entity: "site", entityId: sites[3].id, detail: `Created site ${sites[3].name} (${sites[3].code})`, ip: "203.0.113.24", userAgent: AGENT, createdAt: stamp(-85 * DAY) },
       { actorId: admin.id, actorEmail: admin.email, action: "create", entity: "worker", entityId: workers[4].id, detail: `Added worker ${workers[4].name}`, ip: "203.0.113.24", userAgent: AGENT, createdAt: stamp(-12 * DAY) },
       { actorId: null, actorEmail: "pat@cleanops.dev", action: "register", entity: "auth", detail: "Registration submitted, awaiting approval", ip: "198.51.100.42", userAgent: AGENT, createdAt: stamp(-2 * DAY) },
-      { actorId: null, actorEmail: "pat@cleanops.dev", action: "verify_email", entity: "auth", detail: "Email confirmed", ip: "198.51.100.42", userAgent: AGENT, createdAt: stamp(-46) },
       { actorId: null, actorEmail: "bob@cleanops.dev", action: "login_failed", entity: "auth", detail: "Account suspended", ip: "198.51.100.7", userAgent: AGENT, createdAt: stamp(-40) },
       { actorId: null, actorEmail: "admin@cleanops.dev", action: "login_failed", entity: "auth", detail: "Wrong password", ip: "45.33.18.9", userAgent: AGENT, createdAt: stamp(-38) },
       { actorId: null, actorEmail: "admin@cleanops.dev", action: "login_locked", entity: "auth", detail: "Too many attempts from this address", ip: "45.33.18.9", userAgent: AGENT, createdAt: stamp(-37.9) },

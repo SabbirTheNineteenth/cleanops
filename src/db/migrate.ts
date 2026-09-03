@@ -144,16 +144,6 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
 
-CREATE TABLE IF NOT EXISTS email_tokens (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,
-  purpose TEXT NOT NULL DEFAULT 'verify_email',
-  expires_at TEXT NOT NULL,
-  used_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
-);
-
 CREATE INDEX IF NOT EXISTS idx_incidents_site ON incidents(site_id);
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
 CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity);
@@ -170,7 +160,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity, entity_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_email ON auth_attempts(email, created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_ip ON auth_attempts(ip, created_at);
-CREATE INDEX IF NOT EXISTS idx_email_tokens_hash ON email_tokens(token_hash);
 `);
 
   const userCols = await db.execute(`PRAGMA table_info(users)`);
@@ -178,10 +167,6 @@ CREATE INDEX IF NOT EXISTS idx_email_tokens_hash ON email_tokens(token_hash);
   if (!hasUserCol("status")) {
     await db.execute(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
     console.log("Added users.status column");
-  }
-  if (!hasUserCol("email_verified_at")) {
-    await db.execute(`ALTER TABLE users ADD COLUMN email_verified_at TEXT`);
-    console.log("Added users.email_verified_at column");
   }
 
   const workerCols = await db.execute(`PRAGMA table_info(workers)`);

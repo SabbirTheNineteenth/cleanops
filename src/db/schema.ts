@@ -12,7 +12,6 @@ export const users = sqliteTable("users", {
   status: text("status", { enum: ["active", "banned", "pending"] })
     .notNull()
     .default("active"),
-  emailVerifiedAt: text("email_verified_at"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(CURRENT_TIMESTAMP)`),
@@ -215,20 +214,6 @@ export const authAttempts = sqliteTable("auth_attempts", {
   email: text("email").notNull().default(""),
   ip: text("ip").notNull().default(""),
   success: integer("success", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`(CURRENT_TIMESTAMP)`),
-});
-
-export const emailTokens = sqliteTable("email_tokens", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  tokenHash: text("token_hash").notNull().unique(),
-  purpose: text("purpose").notNull().default("verify_email"),
-  expiresAt: text("expires_at").notNull(),
-  usedAt: text("used_at"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(CURRENT_TIMESTAMP)`),
