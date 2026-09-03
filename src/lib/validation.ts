@@ -61,6 +61,15 @@ export const incidentWorkSchema = z.object({
 
 export const enhanceTextSchema = z.object({
   text: z.string().min(3, "Write a few words first"),
+  mode: z.enum(["style", "translate", "fix"]).optional().default("style"),
+  preset: z
+    .enum(["formal", "short", "detailed", "corporate", "simple", "urgent"])
+    .optional()
+    .default("formal"),
+  language: z
+    .enum(["english", "bangla", "hindi", "arabic"])
+    .optional()
+    .default("english"),
   title: z.string().optional().default(""),
   category: z.string().optional().default(""),
   siteName: z.string().optional().default(""),

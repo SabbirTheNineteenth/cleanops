@@ -96,8 +96,23 @@ function heuristic(ctx: IncidentContext): IncidentAI {
   };
 }
 
+export type EnhanceMode = "style" | "translate" | "fix";
+
+export type StylePreset =
+  | "formal"
+  | "short"
+  | "detailed"
+  | "corporate"
+  | "simple"
+  | "urgent";
+
+export type TranslateLanguage = "english" | "bangla" | "hindi" | "arabic";
+
 export interface EnhanceContext {
   text: string;
+  mode?: EnhanceMode;
+  preset?: StylePreset;
+  language?: TranslateLanguage;
   title?: string;
   category?: string;
   siteName?: string;
@@ -105,8 +120,44 @@ export interface EnhanceContext {
 
 export interface EnhancedText {
   text: string;
-  source: "openrouter" | "heuristic";
+  source: "openrouter" | "heuristic" | "unavailable";
+  mode: EnhanceMode;
+  label: string;
 }
+
+const STYLE_RULES: Record<StylePreset, { label: string; rule: string }> = {
+  formal: {
+    label: "Formal",
+    rule: "Rewrite it in formal, professional operations-report language. Full sentences, no slang, no contractions.",
+  },
+  short: {
+    label: "Short",
+    rule: "Compress it to the shortest form that still carries every fact. One or two sentences maximum, no filler.",
+  },
+  detailed: {
+    label: "Detailed",
+    rule: "Organise it into a fuller report using ONLY the facts already present: what happened, where, and the visible impact.",
+  },
+  corporate: {
+    label: "Corporate",
+    rule: "Rewrite it as a measured corporate incident update suitable for a client or management email.",
+  },
+  simple: {
+    label: "Simple",
+    rule: "Rewrite it in very plain language a field worker can read instantly. Short words, short sentences.",
+  },
+  urgent: {
+    label: "Urgent",
+    rule: "Rewrite it as an urgent escalation note that leads with the risk and the action needed, staying strictly factual.",
+  },
+};
+
+const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
+  english: "English",
+  bangla: "Bengali (Bangla)",
+  hindi: "Hindi",
+  arabic: "Arabic",
+};
 
 function tidyText(input: string): string {
   const cleaned = input.replace(/\s+/g, " ").trim();
@@ -120,21 +171,74 @@ function tidyText(input: string): string {
   return /[.!?]$/.test(joined) ? joined : `${joined}.`;
 }
 
+function shorten(input: string): string {
+  const tidy = tidyText(input);
+  const sentences = tidy.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const kept = sentences.slice(0, 2).join(" ");
+  if (!kept) return tidy;
+  return kept.length > 220 ? `${kept.slice(0, 217).trimEnd()}...` : kept;
+}
+
+function enhanceLabel(
+  mode: EnhanceMode,
+  preset: StylePreset,
+  language: TranslateLanguage,
+): string {
+  if (mode === "translate") return LANGUAGE_NAMES[language];
+  if (mode === "fix") return "Grammar & spelling";
+  return STYLE_RULES[preset].label;
+}
+
+function localFallback(
+  ctx: EnhanceContext,
+  mode: EnhanceMode,
+  preset: StylePreset,
+  label: string,
+): EnhancedText {
+  if (mode === "translate") {
+    return { text: ctx.text, source: "unavailable", mode, label };
+  }
+  const text =
+    mode === "style" && preset === "short" ? shorten(ctx.text) : tidyText(ctx.text);
+  return { text, source: "heuristic", mode, label };
+}
+
+function enhanceInstruction(
+  mode: EnhanceMode,
+  preset: StylePreset,
+  language: TranslateLanguage,
+): string {
+  if (mode === "translate") {
+    const name = LANGUAGE_NAMES[language];
+    return `Translate the following facilities-operations incident note into ${name}. If it is already in ${name}, correct it and return it in ${name}. Keep site names, codes and numbers exactly as written.`;
+  }
+  if (mode === "fix") {
+    return "Fix only the grammar, spelling and punctuation of the following incident note. Keep the original wording, language, tone and length as close as possible. Do not restyle it and do not translate it.";
+  }
+  return `Rewrite the following facilities-operations incident note. ${STYLE_RULES[preset].rule} Keep it in the same language as the original.`;
+}
+
 export async function enhanceIncidentText(
   ctx: EnhanceContext,
 ): Promise<EnhancedText> {
+  const mode: EnhanceMode = ctx.mode ?? "style";
+  const preset: StylePreset = ctx.preset ?? "formal";
+  const language: TranslateLanguage = ctx.language ?? "english";
+  const label = enhanceLabel(mode, preset, language);
+  const fallback = localFallback(ctx, mode, preset, label);
+
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const fallback: EnhancedText = { text: tidyText(ctx.text), source: "heuristic" };
   if (!apiKey) return fallback;
 
   const model =
     process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
-  const prompt = `Rewrite the following incident note as a clear, professional facilities-operations report.
+  const temperature = mode === "fix" ? 0.1 : mode === "translate" ? 0.2 : 0.35;
+  const prompt = `${enhanceInstruction(mode, preset, language)}
+
 Rules:
-- Keep every fact from the original. Do NOT invent details, causes, names, times, or measurements.
-- 1 to 3 short sentences, plain prose, no bullet points, no headings, no quotes.
-- Fix grammar and spelling. Be specific about what is wrong, where, and the visible risk if the note mentions one.
-- Reply with the rewritten note only, nothing else.
+- Keep every fact from the original. Do NOT invent details, causes, names, times, quantities or measurements.
+- Plain prose only: no bullet points, no headings, no quotes, no preamble, no explanation.
+- Reply with the resulting note only, nothing else.
 
 Context (for tone only): title "${ctx.title || "N/A"}", category "${ctx.category || "N/A"}", site "${ctx.siteName || "N/A"}".
 
@@ -150,12 +254,12 @@ ${ctx.text}`;
       },
       body: JSON.stringify({
         model,
-        temperature: 0.3,
+        temperature,
         messages: [
           {
             role: "system",
             content:
-              "You rewrite short operational notes. Output only the rewritten note as plain text.",
+              "You are a text editing engine for an operations app. Output only the resulting note as plain text.",
           },
           { role: "user", content: prompt },
         ],
@@ -164,7 +268,7 @@ ${ctx.text}`;
     });
 
     if (!res.ok) {
-      console.warn(`[ai] enhance OpenRouter ${res.status}; using tidy fallback`);
+      console.warn(`[ai] enhance OpenRouter ${res.status}; using local fallback`);
       return fallback;
     }
 
@@ -177,9 +281,9 @@ ${ctx.text}`;
       .slice(0, 1000);
     if (!text) return fallback;
 
-    return { text, source: "openrouter" };
+    return { text, source: "openrouter", mode, label };
   } catch (err) {
-    console.warn("[ai] enhance call failed; using tidy fallback:", err);
+    console.warn("[ai] enhance call failed; using local fallback:", err);
     return fallback;
   }
 }
