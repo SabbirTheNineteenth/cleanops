@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
+import { getLiveSession } from "@/lib/session";
 
 export default async function Home() {
-  const session = await getSession();
+  const session = await getLiveSession();
   redirect(session ? "/dashboard" : "/login");
 }
