@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Radar, ShieldCheck, Sparkles, Activity, MapPin, MailCheck } from "lucide-react";
 import { postJSON } from "@/lib/api";
 import { Button, Input, Label } from "@/components/ui";
+import { PasswordHints, passwordScore } from "@/components/PasswordHints";
 
 const FEATURES = [
   { icon: Activity, title: "Real-time incident triage", desc: "Report, assign, and resolve issues across every site from one console." },
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,7 +41,7 @@ export default function LoginPage() {
 
         setNotice(
           res.message ??
-            "Registration received. An administrator will review your account shortly.",
+            "Registration received. Confirm your email, then an administrator will review your account.",
         );
         setMode("login");
         setName("");
@@ -51,6 +53,25 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
+
+  async function resend() {
+    if (!email) {
+      setError("Enter your email address first.");
+      return;
+    }
+    setResending(true);
+    setError("");
+    try {
+      const res = await postJSON<{ message: string }>("/auth/verify/resend", { email });
+      setNotice(res.message ?? "If that address needs confirming, a new link is on its way.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the link");
+    } finally {
+      setResending(false);
+    }
+  }
+
+  const weakPassword = mode === "register" && passwordScore(password) < 4;
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -145,16 +166,39 @@ export default function LoginPage() {
             {mode === "register" && (
               <div>
                 <Label>Full name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" required />
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jane Doe"
+                  autoComplete="name"
+                  minLength={2}
+                  maxLength={80}
+                  required
+                />
               </div>
             )}
             <div>
               <Label>Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                autoComplete="email"
+                required
+              />
             </div>
             <div>
               <Label>Password</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                required
+              />
+              {mode === "register" && <PasswordHints value={password} />}
             </div>
 
             {error && (
@@ -164,9 +208,21 @@ export default function LoginPage() {
               </p>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || weakPassword}>
               {loading ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
             </Button>
+
+            <p className="text-center text-xs text-ink-400">
+              Waiting on a confirmation email?{" "}
+              <button
+                type="button"
+                onClick={resend}
+                disabled={resending}
+                className="font-semibold text-brand-600 transition hover:text-brand-700 disabled:opacity-50"
+              >
+                {resending ? "Sending…" : "Resend the link"}
+              </button>
+            </p>
           </form>
         </div>
       </div>
