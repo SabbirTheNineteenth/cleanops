@@ -11,7 +11,7 @@ import {
 import { computeDueAt, slaInfo } from "@/lib/sla";
 import { parseTime, sqlNow, toSqlTime } from "@/lib/time";
 import { analyzeIncident, enhanceIncidentText } from "../ai";
-import { logAudit, logEvent, notify, notifyAdmins, notifyUsers } from "../activity";
+import { logAudit, logEvent, notify, notifyAdmins } from "../activity";
 import { RATE_RULES, aiBlocked, recordAttempt, retryAfterMessage } from "../ratelimit";
 import {
   listMeta,

@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLogs, incidentEvents, notifications, users } from "@/db/schema";
 import type { AppContext } from "./middleware";
@@ -94,15 +94,6 @@ export async function notifyAdmins(
   }
 }
 
-export async function notifyUsers(
-  ids: number[],
-  entry: Omit<NotifyEntry, "userId">,
-): Promise<void> {
-  const unique = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
-  if (unique.length === 0) return;
-  await notify(unique.map((userId) => ({ ...entry, userId })));
-}
-
 export interface EventEntry {
   incidentId: number;
   type: string;
@@ -127,28 +118,4 @@ export async function logEvent(entry: EventEntry): Promise<void> {
   } catch (err) {
     console.error("[event] failed:", err);
   }
-}
-
-export async function adminIdsExcept(userId?: number | null): Promise<number[]> {
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(
-      userId
-        ? and(eq(users.role, "admin"), eq(users.status, "active"), ne(users.id, userId))
-        : and(eq(users.role, "admin"), eq(users.status, "active")),
-    )
-    .all();
-  return rows.map((row) => row.id);
-}
-
-export async function userIdsFor(ids: number[]): Promise<number[]> {
-  const clean = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
-  if (clean.length === 0) return [];
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(inArray(users.id, clean))
-    .all();
-  return rows.map((row) => row.id);
 }
