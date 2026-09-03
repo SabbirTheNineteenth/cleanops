@@ -12,14 +12,23 @@ export async function api<T = any>(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg =
-      typeof data?.error === "string"
-        ? data.error
-        : data?.error?.formErrors?.join(", ") ||
-          `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new Error(errorMessage(data, res.status));
   }
   return data as T;
+}
+
+function errorMessage(data: any, status: number): string {
+  const error = data?.error;
+  if (typeof error === "string") return error;
+  const form: string[] = error?.formErrors ?? [];
+  const fields: string[] = Object.values(error?.fieldErrors ?? {})
+    .flat()
+    .filter((value): value is string => typeof value === "string");
+  const all = [...form, ...fields];
+  if (all.length) return all.join(", ");
+  if (status === 401) return "Your session ended. Please sign in again.";
+  if (status === 403) return "You do not have access to do that.";
+  return `Request failed (${status})`;
 }
 
 export const getJSON = <T = any>(p: string) => api<T>(p);
