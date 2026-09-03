@@ -2,7 +2,7 @@ import { asc, desc, type SQLWrapper } from "drizzle-orm";
 import type { Context } from "hono";
 
 export const DEFAULT_PAGE_SIZE = 10;
-export const MAX_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 200;
 export const EXPORT_PAGE_SIZE = 2000;
 
 export type SortDir = "asc" | "desc";

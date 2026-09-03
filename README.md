@@ -226,7 +226,7 @@ Every list endpoint parses its query string through one shared helper, so the co
 | Parameter | Default | Notes |
 |---|---|---|
 | `page` | `1` | Clamped to the last available page. |
-| `pageSize` | `10` | Maximum `100`. |
+| `pageSize` | `10` | Maximum `200`. Option lists (assignee and site dropdowns) use the upper end; screens use 10–25. |
 | `q` | — | Trimmed to 80 characters, matched against the meaningful text columns of that resource. |
 | `sort` | per resource | Ignored unless the column is on that endpoint's allow-list. |
 | `dir` | `desc` | `asc` or `desc`. |
