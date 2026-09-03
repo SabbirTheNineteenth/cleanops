@@ -37,7 +37,7 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 
 **Notification center.** In-app notifications for assignments, comments, resolutions, approvals, and deadline warnings, with unread filtering, mark-all-read, and a live unread badge in the sidebar.
 
-**Audit trail.** An admin-only log of every privileged action — logins, failed logins and lockouts, registrations, email confirmations, creates, updates, assignments, deletes, password changes, session revocations and CSV exports — each with actor, target, detail, IP, and user agent, filterable by action, entity, actor, and date range.
+**Audit trail.** An admin-only log of every privileged action — logins, failed logins and lockouts, registrations, approvals, creates, updates, assignments, deletes, password changes, session revocations and CSV exports — each with actor, target, detail, IP, and user agent, filterable by action, entity, actor, and date range.
 
 **Site management.** Create, edit, and delete sites with a name, code, location, and active/inactive status. Each site has a detail page showing its assigned workers and its incident history.
 
@@ -51,11 +51,11 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 
 **Authentication and RBAC.** JWT sessions in an httpOnly cookie, bcrypt-hashed passwords, and middleware that enforces admin-only routes. Role and account status are re-checked on every request, so bans and role changes take effect immediately on existing sessions.
 
-**Hardened sign-in.** Per-email and per-IP brute-force limits with lockout, non-enumerating error messages, an enforced password policy, failed-login logging, and email confirmation on registration. See [Security hardening](#security-hardening).
+**Hardened sign-in.** Per-email and per-IP brute-force limits with lockout, non-enumerating error messages, an enforced password policy, failed-login logging, and admin approval before a new account can sign in. See [Security hardening](#security-hardening).
 
 **Session and device management.** Every sign-in creates a server-side session row keyed by a token id. The account page lists active devices with IP, user agent, first seen and last seen, and can revoke any one of them or sign out everywhere else. Changing a password revokes every other session.
 
-**Self-registration with admin approval.** New users register from the public page, confirm their email address, and land in a `pending` state with no session issued. Admins see an approval queue on the dashboard and members page; approving an account activates it and automatically provisions a linked worker profile.
+**Self-registration with admin approval.** New users register from the public page and land in a `pending` state with no session issued. Admins see an approval queue on the dashboard and members page; approving an account activates it and automatically provisions a linked worker profile.
 
 **Worker self-service.** When an admin assigns an incident to a worker, it appears on that worker's own dashboard under "My assigned work," where the worker can update status, tick off checklist items, comment, and record work details — scoped so a worker can only touch incidents assigned to them.
 
@@ -94,7 +94,7 @@ Next.js route handler  ──►  Hono app
                               ├─ rate limiter (per-email / per-IP windows on auth and AI routes)
                               ├─ route modules (auth, sites, workers, assignments, incidents,
                               │                 collaboration, notifications, reports, audit, stats, users)
-                              ├─ shared helpers (list query + CSV, SLA clock, activity/audit/notify, mailer)
+                              ├─ shared helpers (list query + CSV, SLA clock, activity/audit/notify)
                               ├─ AI module (free-model discovery → OpenRouter → heuristic fallback)
                               └─ Drizzle ORM ──► libSQL (local file dev / Turso prod)
 ```
@@ -143,9 +143,6 @@ The migration step is idempotent — it creates tables if missing and adds newer
 | `DATABASE_URL` | Yes | libSQL connection string. Local dev uses `file:cleanops.db`; production uses a Turso URL like `libsql://<db>.turso.io`. |
 | `DATABASE_AUTH_TOKEN` | Prod only | Turso auth token. Leave empty for a local file; required for a remote Turso URL. |
 | `JWT_SECRET` | Yes | Secret used to sign session tokens. Use a long random string in production. |
-| `RESEND_API_KEY` | No | Resend key used to email the registration confirmation link. If empty, the link is printed to the server console instead, so registration still completes locally. |
-| `MAIL_FROM` | No | From address for confirmation mail. Defaults to `CleanOps <onboarding@resend.dev>`. |
-| `APP_URL` | No | Base URL used to build links inside emails. Falls back to `NEXT_PUBLIC_APP_URL`, then `VERCEL_URL`, then `http://localhost:3000`. |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key. If empty, incident analysis uses the local heuristic. |
 | `OPENROUTER_MODEL` | No | Optional preferred model id, or a comma-separated preference list. Leave empty and the app auto-selects from OpenRouter's free models. |
 
@@ -168,7 +165,7 @@ Loaded by `npm run db:seed`.
 | `nadia@cleanops.dev` | `member123` | user | active | Plain member. |
 | `leo@cleanops.dev` | `member123` | user | active | Plain member. |
 | `bob@cleanops.dev` | `member123` | user | banned | Login is rejected — demonstrates a suspended account. |
-| `pat@cleanops.dev` | `member123` | user | pending | Email confirmed but not yet approved — sits in the approval queue. |
+| `pat@cleanops.dev` | `member123` | user | pending | Registered but not yet approved — sits in the approval queue. |
 
 > Sign in as the admin and approve Pat to see the flow end to end: the account flips to `active` and a linked worker profile is created automatically. The roster also contains **Grace Okoye**, a worker with no login attached, so the "available / not linked" state is visible too.
 
@@ -199,15 +196,14 @@ Sign-in and registration are the most attacked surface in an app like this, so t
 | `loginEmail` | 8 | 15 min | failures only |
 | `loginIp` | 25 | 15 min | failures only |
 | `register` | 5 | 60 min | every attempt |
-| `verify` | 6 | 60 min | every attempt |
 | `ai` | 30 | 60 min | every attempt |
 | `comment` | 60 | 60 min | every attempt |
 
 Exceeding a limit returns `429` with a retry-after message and writes a `login_locked` audit row. Attempt rows older than 24 hours are pruned opportunistically.
 
-**No account enumeration.** A wrong password and an unknown email both return the same `401 Invalid email or password`, and an unknown email still runs a dummy bcrypt comparison so the response time does not reveal whether the address exists. Registration always answers with the same neutral "check your inbox" message whether or not the email was already taken.
+**No account enumeration.** A wrong password and an unknown email both return the same `401 Invalid email or password`, and an unknown email still runs a dummy bcrypt comparison so the response time does not reveal whether the address exists. Registration always answers with the same neutral "an administrator reviews new accounts" message whether or not the email was already taken.
 
-**Email confirmation.** Registration issues a single-use token (24-hour expiry) and mails a confirmation link. Without `RESEND_API_KEY` the link is logged to the server console instead, so the flow still completes locally. Unconfirmed and unapproved accounts get distinct, non-leaking `403` messages and no session.
+**Admin approval.** A new registration lands as `pending` and cannot sign in — the login attempt is refused with a `403` that only says the account is awaiting approval. An admin activates it from the Members page, which flips the status to `active` and creates the linked worker profile. Rejecting instead deletes the pending row. There is no email step anywhere in the flow.
 
 **Session cookies.** `httpOnly`, `sameSite=lax`, and `secure` in production. The JWT carries a token id that maps to a `sessions` row, so a revoked session dies immediately even though the JWT itself is still unexpired.
 
@@ -215,7 +211,7 @@ Exceeding a limit returns `429` with a retry-after message and writes a `login_l
 
 **Live authorization.** Role and account status are re-read from the database on every protected request, so bans, role changes, and approvals apply to sessions that are already open.
 
-**Audit trail.** Logins, failed logins, lockouts, registrations, confirmations, creates, updates, assignments, deletes, password changes, session revocations and CSV exports are all written with actor, target, detail, IP, and user agent, readable only by admins.
+**Audit trail.** Logins, failed logins, lockouts, registrations, approvals, creates, updates, assignments, deletes, password changes, session revocations and CSV exports are all written with actor, target, detail, IP, and user agent, readable only by admins.
 
 ---
 
@@ -279,15 +275,13 @@ Compliance rate is `met / (met + breached)`, shown on the dashboard with a colou
 
 ## API reference
 
-Every route is served under `/api`. Only register, verify, login and logout are reachable without a session cookie; everything else requires `requireAuth`, and routes marked **admin** additionally pass `requireAdmin`. All list endpoints accept the query contract described above.
+Every route is served under `/api`. Only register, login and logout are reachable without a session cookie; everything else requires `requireAuth`, and routes marked **admin** additionally pass `requireAdmin`. All list endpoints accept the query contract described above.
 
 ### Auth and account
 
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| POST | `/auth/register` | public | Register an account (created pending, email token issued, no session). |
-| POST | `/auth/verify` | public | Confirm an email address with the token from the link. |
-| POST | `/auth/verify/resend` | public | Re-issue a confirmation link. |
+| POST | `/auth/register` | public | Register an account (created pending, awaiting admin approval, no session). |
 | POST | `/auth/login` | public | Sign in — rate limited, starts a session row, sets the cookie. |
 | POST | `/auth/logout` | public | Clear the cookie and close the current session. |
 | GET | `/auth/me` | auth | Current account plus its linked worker profile. |
@@ -384,7 +378,6 @@ src/
 │  │                    workers, members, reports, notifications, audit, account
 │  ├─ api/[[...route]]/ Hono app mounted into Next.js
 │  ├─ login/            Public sign-in / registration
-│  ├─ verify/           Email confirmation landing page
 │  ├─ layout.tsx        Root layout and fonts
 │  └─ globals.css       Tailwind layers and base styles
 ├─ components/
@@ -399,7 +392,7 @@ src/
 │  ├─ PageHeader.tsx
 │  └─ Modal.tsx
 ├─ db/
-│  ├─ schema.ts         Drizzle schema (14 tables)
+│  ├─ schema.ts         Drizzle schema (12 tables)
 │  ├─ index.ts          Database connection
 │  ├─ migrate.ts        Idempotent migrations
 │  └─ seed.ts           Demo data
@@ -411,8 +404,6 @@ src/
    ├─ csv.ts            CSV serialisation for exports
    ├─ sessions.ts       Session rows, revocation, device list
    ├─ ratelimit.ts      Sliding-window attempt limits
-   ├─ tokens.ts         Single-use email tokens
-   ├─ mailer.ts         Resend delivery with console fallback
    ├─ activity.ts       Timeline events, audit rows, notifications
    ├─ ai.ts             OpenRouter + heuristic fallback
    └─ routes/           auth, sites, workers, assignments, incidents, collab,
@@ -454,8 +445,6 @@ Vercel's serverless runtime has an ephemeral, read-only filesystem, so a local S
    - `DATABASE_URL` = the `libsql://…turso.io` URL
    - `DATABASE_AUTH_TOKEN` = the Turso token
    - `JWT_SECRET` = a long random string
-   - `APP_URL` = your deployed URL, so confirmation links point at production
-   - `RESEND_API_KEY` / `MAIL_FROM` (optional — without a key, confirmation links only appear in the server logs)
    - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (optional)
 
 3. Provision the schema and demo data against Turso (run locally with the production env vars exported):
