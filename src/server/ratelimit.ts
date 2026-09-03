@@ -13,7 +13,6 @@ export const RATE_RULES: Record<string, RateRule> = {
   loginEmail: { max: 8, windowMinutes: 15, failuresOnly: true },
   loginIp: { max: 25, windowMinutes: 15, failuresOnly: true },
   register: { max: 5, windowMinutes: 60 },
-  verify: { max: 6, windowMinutes: 60 },
   ai: { max: 30, windowMinutes: 60 },
   comment: { max: 60, windowMinutes: 60 },
 };
@@ -84,10 +83,6 @@ export async function loginBlocked(email: string, ip: string): Promise<boolean> 
 
 export async function registerBlocked(ip: string): Promise<boolean> {
   return overLimit("register", RATE_RULES.register, { ip });
-}
-
-export async function verifyBlocked(email: string): Promise<boolean> {
-  return overLimit("verify", RATE_RULES.verify, { subject: email });
 }
 
 export async function aiBlocked(userId: number | string): Promise<boolean> {

@@ -4,7 +4,6 @@ import { db } from "@/db";
 import { incidents, users, workers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth";
 import { adminCreateUserSchema, userUpdateSchema } from "@/lib/validation";
-import { sqlNow } from "@/lib/time";
 import { logAudit, notify } from "../activity";
 import { revokeOtherSessions } from "../sessions";
 import {
@@ -32,7 +31,6 @@ const publicUserCols = {
   email: users.email,
   role: users.role,
   status: users.status,
-  emailVerifiedAt: users.emailVerifiedAt,
   createdAt: users.createdAt,
 };
 
@@ -76,8 +74,6 @@ function conditionsFor(query: Record<string, string>, search: string) {
   const role = pickEnum(query.role, ROLES);
   if (status) conditions.push(eq(users.status, status));
   if (role) conditions.push(eq(users.role, role));
-  if (query.verified === "1") conditions.push(sql`${users.emailVerifiedAt} is not null`);
-  if (query.verified === "0") conditions.push(sql`${users.emailVerifiedAt} is null`);
   if (search) {
     const pattern = searchPattern(search);
     conditions.push(or(like(users.name, pattern), like(users.email, pattern))!);
@@ -116,18 +112,17 @@ userRoutes.get("/", async (c) => {
       .get(),
   ]);
 
-  const data = rows.map((row) => ({ ...row, emailVerified: Boolean(row.emailVerifiedAt) }));
+  const data = rows;
 
   if (query.isExport) {
     const csv = toCsv(
-      ["ID", "Name", "Email", "Role", "Status", "Email verified", "Worker profile", "Created"],
+      ["ID", "Name", "Email", "Role", "Status", "Worker profile", "Created"],
       data.map((row) => [
         row.id,
         row.name,
         row.email,
         row.role,
         row.status,
-        row.emailVerified ? "yes" : "no",
         row.workerId ? row.workerRole ?? "yes" : "no",
         row.createdAt,
       ]),
@@ -166,7 +161,6 @@ userRoutes.post("/", async (c) => {
       passwordHash,
       role,
       status: "active",
-      emailVerifiedAt: sqlNow(),
     })
     .returning(publicUserCols)
     .get();

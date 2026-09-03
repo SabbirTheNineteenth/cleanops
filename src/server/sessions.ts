@@ -1,11 +1,15 @@
+import { randomBytes } from "node:crypto";
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { sessions } from "@/db/schema";
 import { MAX_AGE_SECONDS } from "@/lib/auth";
 import { addMinutes, minutesAgo, parseTime, sqlNow, toSqlTime } from "@/lib/time";
-import { newSessionId } from "./tokens";
 
 const TOUCH_AFTER_MINUTES = 5;
+
+function newSessionId(): string {
+  return randomBytes(24).toString("base64url");
+}
 
 export async function startSession(
   userId: number,

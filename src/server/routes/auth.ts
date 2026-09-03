@@ -15,13 +15,10 @@ import {
 } from "@/lib/auth";
 import {
   changePasswordSchema,
-  emailOnlySchema,
   loginSchema,
   profileSchema,
   registerSchema,
-  verifyTokenSchema,
 } from "@/lib/validation";
-import { sqlNow } from "@/lib/time";
 import { clientAgent, clientIp, logAudit, notify, notifyAdmins } from "../activity";
 import {
   RATE_RULES,
@@ -29,7 +26,6 @@ import {
   recordAttempt,
   registerBlocked,
   retryAfterMessage,
-  verifyBlocked,
 } from "../ratelimit";
 import {
   describeAgent,
@@ -38,26 +34,12 @@ import {
   revokeSession,
   startSession,
 } from "../sessions";
-import { createEmailToken, consumeEmailToken, invalidateTokens } from "../tokens";
-import { sendMail, verificationLink, verificationMail } from "../mailer";
 import { requireAuth, type Variables } from "../middleware";
 
 export const authRoutes = new Hono<{ Variables: Variables }>();
 
 const GENERIC_REGISTER_MESSAGE =
-  "Registration received. Check your inbox to confirm the address — an administrator reviews new accounts before access is granted.";
-
-async function issueVerification(
-  userId: number,
-  name: string,
-  email: string,
-): Promise<boolean> {
-  await invalidateTokens(userId);
-  const token = await createEmailToken(userId);
-  const link = verificationLink(token);
-  const result = await sendMail({ to: email, ...verificationMail(name, link) });
-  return result.sent;
-}
+  "Registration received. An administrator reviews new accounts before access is granted.";
 
 authRoutes.post("/register", async (c) => {
   const ip = clientIp(c);
@@ -88,7 +70,6 @@ authRoutes.post("/register", async (c) => {
     .returning({ id: users.id })
     .get();
 
-  await issueVerification(created.id, name, email);
   await notifyAdmins({
     type: "approval",
     title: "New registration awaiting approval",
@@ -105,82 +86,6 @@ authRoutes.post("/register", async (c) => {
   });
 
   return c.json({ pending: true, message: GENERIC_REGISTER_MESSAGE });
-});
-
-authRoutes.post("/verify", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = verifyTokenSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: "That confirmation link is not valid." }, 400);
-  }
-
-  const consumed = await consumeEmailToken(parsed.data.token);
-  if (!consumed) {
-    return c.json({ error: "This link has expired or was already used." }, 400);
-  }
-
-  const account = await db
-    .select({ id: users.id, name: users.name, email: users.email, status: users.status, verifiedAt: users.emailVerifiedAt })
-    .from(users)
-    .where(eq(users.id, consumed.userId))
-    .get();
-  if (!account) {
-    return c.json({ error: "This link has expired or was already used." }, 400);
-  }
-
-  if (!account.verifiedAt) {
-    await db.update(users).set({ emailVerifiedAt: sqlNow() }).where(eq(users.id, account.id));
-    await notifyAdmins({
-      type: "approval",
-      title: "Email confirmed",
-      body: `${account.name} (${account.email}) confirmed their address.`,
-      link: "/members",
-    });
-  }
-
-  await logAudit(c, {
-    action: "verify_email",
-    entity: "user",
-    entityId: account.id,
-    detail: account.email,
-    actorId: account.id,
-    actorEmail: account.email,
-  });
-
-  return c.json({
-    ok: true,
-    pending: account.status === "pending",
-    message:
-      account.status === "pending"
-        ? "Email confirmed. An administrator will approve your account shortly."
-        : "Email confirmed. You can sign in now.",
-  });
-});
-
-authRoutes.post("/verify/resend", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = emailOnlySchema.safeParse(body);
-  const generic = {
-    ok: true,
-    message: "If that address needs confirming, a new link is on its way.",
-  };
-  if (!parsed.success) return c.json(generic);
-
-  const email = parsed.data.email.toLowerCase();
-  if (await verifyBlocked(email)) {
-    return c.json({ error: retryAfterMessage(RATE_RULES.verify) }, 429);
-  }
-  await recordAttempt("verify", { subject: email, ip: clientIp(c), success: true });
-
-  const account = await db
-    .select({ id: users.id, name: users.name, verifiedAt: users.emailVerifiedAt })
-    .from(users)
-    .where(eq(users.email, email))
-    .get();
-  if (account && !account.verifiedAt) {
-    await issueVerification(account.id, account.name, email);
-  }
-  return c.json(generic);
 });
 
 authRoutes.post("/login", async (c) => {
@@ -235,11 +140,8 @@ authRoutes.post("/login", async (c) => {
     await recordAttempt("login", { subject: email, ip, success: true });
     return c.json(
       {
-        error: user.emailVerifiedAt
-          ? "Your account is awaiting admin approval. Please check back soon."
-          : "Confirm your email address first, then wait for admin approval.",
+        error: "Your account is awaiting admin approval. Please check back soon.",
         pending: true,
-        emailVerified: Boolean(user.emailVerifiedAt),
       },
       403,
     );
@@ -295,7 +197,6 @@ authRoutes.get("/me", requireAuth, async (c) => {
       email: users.email,
       role: users.role,
       status: users.status,
-      emailVerifiedAt: users.emailVerifiedAt,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -314,7 +215,7 @@ authRoutes.get("/me", requireAuth, async (c) => {
     .get();
 
   return c.json({
-    user: { ...session, ...account, emailVerified: Boolean(account?.emailVerifiedAt) },
+    user: { ...session, ...account },
     worker: worker ?? null,
   });
 });

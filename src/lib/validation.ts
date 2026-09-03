@@ -44,14 +44,6 @@ export const profileSchema = z.object({
   phone: z.string().max(40).optional().default(""),
 });
 
-export const emailOnlySchema = z.object({
-  email: z.string().email().max(160),
-});
-
-export const verifyTokenSchema = z.object({
-  token: z.string().min(32).max(200),
-});
-
 export const siteSchema = z.object({
   name: z.string().min(2).max(120),
   code: z.string().min(2).max(40),
