@@ -33,6 +33,8 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 
 **AI incident triage.** On report, each incident is sent to an OpenRouter model that returns a concise summary, a severity rating, and a suggested first action. If no API key is configured (or the call fails), a local keyword heuristic produces the same fields so the app never blocks.
 
+**AI editor for incident text.** The description field carries an "Enhance with AI" panel with three modes. *Style* rewrites the note in one of six presets (Formal, Short, Detailed, Corporate, Simple, Urgent), *Translate* converts it to English, Bangla, Hindi, or Arabic, and *Fix* corrects only grammar, spelling, and punctuation. The prompt forbids inventing facts, one click restores the original text, and every result is labelled with whether it came from the model or from the local fallback.
+
 **Authentication and RBAC.** JWT sessions in an httpOnly cookie, bcrypt-hashed passwords, and middleware that enforces admin-only routes. Role and account status are re-checked on every request, so bans and role changes take effect immediately on existing sessions.
 
 **Self-registration with admin approval.** New users register from the public page and land in a `pending` state with no session issued. Admins see an approval queue on the dashboard and members page; approving an account activates it and automatically provisions a linked worker profile.
@@ -171,7 +173,7 @@ All routes are served under `/api`. Every route except register and login requir
 | GET | `/incidents/mine` | auth | Incidents assigned to the signed-in worker. |
 | GET | `/incidents/:id` | auth | Incident detail. |
 | POST | `/incidents` | auth | Report an incident (runs AI analysis). |
-| POST | `/incidents/enhance` | auth | Rewrite an incident description with AI. |
+| POST | `/incidents/enhance` | auth | AI editor for incident text — restyle, translate, or fix grammar. |
 | POST | `/incidents/:id/analyze` | admin | Re-run AI analysis. |
 | PATCH | `/incidents/:id` | admin | Assign, change status/severity, or resolve. |
 | PATCH | `/incidents/:id/work` | auth | Assigned worker updates status and work details. |
