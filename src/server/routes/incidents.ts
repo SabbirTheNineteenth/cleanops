@@ -502,6 +502,18 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
       if (!parsedDue) return c.json({ error: "Due date is not a valid date" }, 400);
       patch.dueAt = toSqlTime(parsedDue);
     }
+    const nextDue = (patch.dueAt as string | null) ?? null;
+    if (nextDue !== (existing.dueAt ?? null)) {
+      events.push({
+        incidentId: id,
+        type: "due",
+        message: nextDue ? `Response deadline set to ${nextDue} UTC` : "Response deadline cleared",
+        actorId: Number(user.sub),
+        actorName: user.name,
+        fromValue: existing.dueAt ?? null,
+        toValue: nextDue,
+      });
+    }
   }
 
   if (status && status !== existing.status) {
