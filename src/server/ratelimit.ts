@@ -42,13 +42,16 @@ export async function attemptCount(
   rule: RateRule,
   match: { subject?: string; ip?: string },
 ): Promise<number> {
+  const subject = (match.subject ?? "").trim().toLowerCase();
+  const ip = (match.ip ?? "").trim();
+  if (!subject && !ip) return 0;
   try {
     const conditions = [
       eq(authAttempts.kind, kind),
       gte(authAttempts.createdAt, minutesAgo(rule.windowMinutes)),
     ];
-    if (match.subject) conditions.push(eq(authAttempts.email, match.subject.toLowerCase()));
-    if (match.ip) conditions.push(eq(authAttempts.ip, match.ip));
+    if (subject) conditions.push(eq(authAttempts.email, subject));
+    if (ip) conditions.push(eq(authAttempts.ip, ip));
     if (rule.failuresOnly) conditions.push(eq(authAttempts.success, false));
 
     const row = await db
