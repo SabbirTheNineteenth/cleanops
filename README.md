@@ -20,6 +20,7 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 - [SLA model](#sla-model)
 - [API reference](#api-reference)
 - [Project structure](#project-structure)
+- [Tests](#tests)
 - [Available scripts](#available-scripts)
 - [Deployment (Vercel + Turso)](#deployment-vercel--turso)
 
@@ -59,7 +60,7 @@ Built as a single Next.js application with a Hono API layer, a typed libSQL/SQLi
 
 **Worker self-service.** When an admin assigns an incident to a worker, it appears on that worker's own dashboard under "My assigned work," where the worker can update status, tick off checklist items, comment, and record work details — scoped so a worker can only touch incidents assigned to them.
 
-**Account controls.** Admins can create users with login credentials, ban and unban accounts, and reject pending registrations. Every user can edit their own name and phone and change their own password.
+**Account controls.** Admins can create users with login credentials, ban and unban accounts, reject pending registrations, and reset a locked-out member's password (which signs that member out of every device). Every user can edit their own name and phone and change their own password.
 
 **Search, filter, sort, paginate everywhere.** Every list endpoint and page shares one query contract: debounced full-text search, typed filters, sortable columns, page size, and CSV export of exactly what is on screen. See [List queries, pagination and CSV export](#list-queries-pagination-and-csv-export).
 
@@ -175,7 +176,7 @@ The seed also loads 5 sites, 5 workers, 14 incidents spread across every status 
 
 ## Roles and permissions
 
-**Admin** has full control: manage sites and workers, assign workers to sites, report and triage incidents, assign incidents to workers, resolve or delete incidents, approve or reject registrations, create users, and ban or unban accounts.
+**Admin** has full control: manage sites and workers, assign workers to sites, report and triage incidents, assign incidents to workers, resolve or delete incidents, approve or reject registrations, create users, reset member passwords, and ban or unban accounts.
 
 **User (worker)** can sign in, view the dashboard, report incidents, and update the incidents assigned to them. Users cannot manage other accounts, reassign incidents, or reach admin-only pages and endpoints.
 
@@ -208,6 +209,8 @@ Exceeding a limit returns `429` with a retry-after message and writes a `login_l
 **Session cookies.** `httpOnly`, `sameSite=lax`, and `secure` in production. The JWT carries a token id that maps to a `sessions` row, so a revoked session dies immediately even though the JWT itself is still unexpired.
 
 **Devices and revocation.** The account page lists every active session with IP, user agent, first seen and last seen, and can revoke one device or sign out everywhere else. Changing a password revokes all other sessions automatically.
+
+**Password recovery.** There is no email-based self-service reset, because the app sends no email at all. Recovery is admin-assisted instead: an admin opens the Members page, hits *Reset* on the member's row, and either types a password or generates a 12-character random one. The endpoint rehashes the password, revokes every session that member has, writes a `password_reset` audit row, and drops a security notification in their inbox telling them to change it from the account page. An admin cannot reset their own password there (the account page is for that) and cannot reset another admin's, so the action can never be used to take over a peer administrator.
 
 **Live authorization.** Role and account status are re-read from the database on every protected request, so bans, role changes, and approvals apply to sessions that are already open.
 
@@ -250,7 +253,7 @@ Report views take a date range instead of a page — either a preset day count o
 
 ## SLA model
 
-Each incident gets a real response deadline at creation time. The AI's recommended response window is preferred; if it is missing or unrecognised, the severity budget is used.
+Each incident gets a real response deadline at creation time. The AI's recommended response window is preferred; if it is missing or unrecognised, the severity budget is used. The window is matched case-insensitively and any trailing parenthetical is ignored, so `Immediate (dispatch now)` resolves to the 30-minute row.
 
 | Response window | Budget | | Severity | Fallback budget |
 |---|---|---|---|---|
@@ -364,6 +367,7 @@ Every route is served under `/api`. Only register, login and logout are reachabl
 | GET | `/users` | admin | List accounts — search, `role`/`status` filters, CSV. |
 | POST | `/users` | admin | Create an account with credentials. |
 | PATCH | `/users/:id` | admin | Approve, ban, unban, or change role. |
+| POST | `/users/:id/password` | admin | Reset a member's password, signing out all of their devices. |
 | DELETE | `/users/:id` | admin | Reject or remove an account. |
 
 
@@ -410,6 +414,35 @@ src/
                         notifications, reports, audit, stats, users
 ```
 
+```
+tests/                  Unit tests: time, sla, query, csv, validation, ai
+```
+
+---
+
+## Tests
+
+The suite runs on Node's built-in test runner (`node:test` + `node:assert/strict`) through `tsx`, so there is no test framework, no assertion library and no config file to install — it uses dependencies the project already had.
+
+```bash
+npm test
+```
+
+98 tests cover the pure logic that the rest of the app leans on, which is where a silent regression would do the most damage and where a test needs no database:
+
+| File | What it pins down |
+|---|---|
+| `tests/time.test.ts` | SQLite datetime formatting, UTC parsing of space-separated stamps, span and "time ago" formatting. |
+| `tests/sla.test.ts` | Severity budgets, AI response-window overrides, due-date maths, and all six SLA states including met vs breached. |
+| `tests/query.test.ts` | Page/pageSize clamping, sort allow-listing, search trimming, CSV export mode, pagination meta, LIKE wildcard stripping, report date ranges. |
+| `tests/csv.test.ts` | BOM and CRLF output, quoting, newline flattening, spreadsheet formula neutralisation, filename sanitising and download headers. |
+| `tests/validation.test.ts` | The password policy, every Zod schema's defaults, and that unknown keys are stripped rather than trusted. |
+| `tests/ai.test.ts` | JSON extraction from messy model replies, severity coercion, and the heuristic's severity, summary, role and response-window output. |
+
+Two things came out of writing them: the AI response window `Immediate (dispatch now)` was not matching the SLA table's `immediate` key, so critical incidents were silently getting the 60-minute severity fallback instead of a 30-minute deadline; and the `ai.ts` helpers that the fallback path depends on were module-private. Both are fixed — the window lookup now ignores the parenthetical, and the pure helpers are exported.
+
+Route handlers, middleware and the database layer are not covered; those need a running libSQL instance and are still verified with `npm run typecheck` plus manual checks.
+
 ---
 
 ## Available scripts
@@ -421,6 +454,8 @@ src/
 | `npm start` | Run the production build. |
 | `npm run lint` | Lint the project. |
 | `npm run typecheck` | Type-check with `tsc --noEmit`. |
+| `npm test` | Run the unit test suite (Node's built-in test runner). |
+| `npm run test:watch` | Re-run the suite on every file change. |
 | `npm run db:generate` | Generate Drizzle SQL artifacts from the schema. |
 | `npm run db:migrate` | Create/upgrade the database schema. Idempotent, safe to re-run. |
 | `npm run db:seed` | Load demo data. **Deletes every existing row first** — it always targets whatever `DATABASE_URL` points at. |
