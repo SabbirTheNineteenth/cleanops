@@ -25,14 +25,14 @@ const RESPONSE_WINDOW: Record<Severity, string> = {
   low: "Next scheduled visit",
 };
 
-function coerceSeverity(value: unknown): Severity {
+export function coerceSeverity(value: unknown): Severity {
   const v = String(value ?? "").toLowerCase().trim();
   return (SEVERITY_VALUES as string[]).includes(v)
     ? (v as Severity)
     : "medium";
 }
 
-function extractJson(content: string): Record<string, unknown> | null {
+export function extractJson(content: string): Record<string, unknown> | null {
   if (!content) return null;
   const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
   try {
@@ -250,7 +250,7 @@ async function chatWithFreeModel(req: ChatRequest): Promise<ChatResult | null> {
   return tryList(await freeModelIds(key));
 }
 
-function cleanupModelText(raw: string): string {
+export function cleanupModelText(raw: string): string {
   return raw
     .replace(/```/g, "")
     .replace(/^["'\s]+|["'\s]+$/g, "")
@@ -265,14 +265,14 @@ const LOW_WORDS = ["cosmetic", "minor", "smell", "dust", "spot", "light", "resto
 const SAFETY_WORDS = ["fire", "gas", "electric", "shock", "hazard", "chemical", "injury", "injured", "collapse", "smoke", "unsafe", "danger"];
 const TECH_WORDS = ["leak", "plumbing", "burst", "overflow", "power", "wiring", "hvac", "ac", "drain", "pipe"];
 
-function recommendRole(text: string, severity: Severity): string {
+export function recommendRole(text: string, severity: Severity): string {
   if (SAFETY_WORDS.some((w) => text.includes(w))) return "Safety Officer";
   if (TECH_WORDS.some((w) => text.includes(w))) return "Field Technician";
   if (severity === "critical" || severity === "high") return "Lead Cleaner";
   return "Field Technician";
 }
 
-function heuristic(ctx: IncidentContext): IncidentAI {
+export function heuristic(ctx: IncidentContext): IncidentAI {
   const text = `${ctx.title} ${ctx.description} ${ctx.category}`.toLowerCase();
   let severity: Severity = "medium";
   if (CRITICAL_WORDS.some((w) => text.includes(w))) severity = "critical";
@@ -367,7 +367,7 @@ const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
   arabic: "Arabic",
 };
 
-function tidyText(input: string): string {
+export function tidyText(input: string): string {
   const cleaned = input.replace(/\s+/g, " ").trim();
   if (!cleaned) return cleaned;
   const sentences = cleaned
@@ -379,7 +379,7 @@ function tidyText(input: string): string {
   return /[.!?]$/.test(joined) ? joined : `${joined}.`;
 }
 
-function shorten(input: string): string {
+export function shorten(input: string): string {
   const tidy = tidyText(input);
   const sentences = tidy.split(/(?<=[.!?])\s+/).filter(Boolean);
   const kept = sentences.slice(0, 2).join(" ");
