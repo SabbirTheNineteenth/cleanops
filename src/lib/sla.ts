@@ -28,7 +28,11 @@ export function slaMinutes(
   severity: string | null | undefined,
   responseWindow?: string | null,
 ): number {
-  const fromWindow = WINDOW_MINUTES[String(responseWindow ?? "").trim().toLowerCase()];
+  const normalized = String(responseWindow ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\(.*\)\s*$/, "");
+  const fromWindow = WINDOW_MINUTES[normalized];
   if (fromWindow) return fromWindow;
   return SLA_MINUTES[(severity ?? "medium") as Severity] ?? SLA_MINUTES.medium;
 }
