@@ -40,6 +40,7 @@ const ACTION_TONES: Record<string, string> = {
   update: "warn",
   export: "neutral",
   password_change: "warn",
+  password_reset: "bad",
 };
 
 export default function AuditPage() {

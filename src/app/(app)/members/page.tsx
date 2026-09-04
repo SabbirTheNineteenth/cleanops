@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Clock,
+  KeyRound,
   Lock,
   ShieldAlert,
   ShieldCheck,
@@ -18,6 +19,7 @@ import { Button, Card, Badge, EmptyState, Select, Skeleton, Tone } from "@/compo
 import { FilterSelect, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
 import { PageHeader } from "@/components/PageHeader";
 import { UserFormModal } from "@/components/admin/UserFormModal";
+import { ResetPasswordModal } from "@/components/admin/ResetPasswordModal";
 
 interface Account {
   id: number;
@@ -50,6 +52,8 @@ export default function MembersPage() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<Account | null>(null);
+  const [notice, setNotice] = useState("");
 
   const list = useList<Account, Summary>("/users", {
     pageSize: 12,
@@ -115,6 +119,13 @@ export default function MembersPage() {
       {error && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
           {error}
+        </p>
+      )}
+
+      {notice && (
+        <p className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+          <KeyRound size={15} />
+          {notice}
         </p>
       )}
 
@@ -262,24 +273,39 @@ export default function MembersPage() {
                     </div>
                   ) : isSelf || a.role === "admin" ? (
                     <span className="text-xs text-ink-400">—</span>
-                  ) : banned ? (
-                    <Button
-                      variant="secondary"
-                      className="text-xs"
-                      disabled={busyId === a.id}
-                      onClick={() => patch(a.id, { status: "active" })}
-                    >
-                      <ShieldCheck size={14} /> Unban
-                    </Button>
                   ) : (
-                    <Button
-                      variant="danger"
-                      className="text-xs"
-                      disabled={busyId === a.id}
-                      onClick={() => patch(a.id, { status: "banned" })}
-                    >
-                      <ShieldOff size={14} /> Ban
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="secondary"
+                        className="text-xs"
+                        disabled={busyId === a.id}
+                        onClick={() => {
+                          setNotice("");
+                          setResetTarget(a);
+                        }}
+                      >
+                        <KeyRound size={14} /> Reset
+                      </Button>
+                      {banned ? (
+                        <Button
+                          variant="secondary"
+                          className="text-xs"
+                          disabled={busyId === a.id}
+                          onClick={() => patch(a.id, { status: "active" })}
+                        >
+                          <ShieldCheck size={14} /> Unban
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="danger"
+                          className="text-xs"
+                          disabled={busyId === a.id}
+                          onClick={() => patch(a.id, { status: "banned" })}
+                        >
+                          <ShieldOff size={14} /> Ban
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>
@@ -313,11 +339,21 @@ export default function MembersPage() {
 
       <p className="flex items-center gap-2 text-xs text-ink-400">
         <ShieldAlert size={14} />
-        Admin accounts can&apos;t be banned, you can&apos;t change your own access, and the last active admin
-        can&apos;t be demoted.
+        Admin accounts can&apos;t be banned or password-reset here, you can&apos;t change your own
+        access, and the last active admin can&apos;t be demoted.
       </p>
 
       <UserFormModal open={createOpen} onClose={() => setCreateOpen(false)} onSaved={list.refresh} />
+      <ResetPasswordModal
+        target={resetTarget}
+        onClose={() => setResetTarget(null)}
+        onSaved={() => {
+          setNotice(
+            `Password reset for ${resetTarget?.name ?? "the member"} — their sessions were signed out.`,
+          );
+          list.refresh();
+        }}
+      />
     </div>
   );
 }
