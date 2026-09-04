@@ -3,7 +3,7 @@ import { and, eq, like, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { incidents, users, workers } from "@/db/schema";
 import { hashPassword } from "@/lib/auth";
-import { adminCreateUserSchema, userUpdateSchema } from "@/lib/validation";
+import { adminCreateUserSchema, resetPasswordSchema, userUpdateSchema } from "@/lib/validation";
 import { logAudit, notify } from "../activity";
 import { revokeOtherSessions } from "../sessions";
 import {
@@ -248,6 +248,49 @@ userRoutes.patch("/:id", async (c) => {
   });
 
   return c.json({ user: row });
+});
+
+userRoutes.post("/:id/password", async (c) => {
+  const id = Number(c.req.param("id"));
+  const me = c.get("user");
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid user id" }, 400);
+  if (Number(me.sub) === id) {
+    return c.json({ error: "Change your own password from the account page" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = resetPasswordSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+  const target = await db.select().from(users).where(eq(users.id, id)).get();
+  if (!target) return c.json({ error: "User not found" }, 404);
+  if (target.role === "admin") {
+    return c.json({ error: "Another admin's password cannot be reset here" }, 400);
+  }
+
+  await db
+    .update(users)
+    .set({ passwordHash: await hashPassword(parsed.data.password) })
+    .where(eq(users.id, id));
+  const revoked = await revokeOtherSessions(id, null);
+
+  await notify([
+    {
+      userId: id,
+      type: "security",
+      title: "Your password was reset",
+      body: "An administrator set a new password for your account. Sign in with it, then change it from your account page.",
+      link: "/account",
+    },
+  ]);
+  await logAudit(c, {
+    action: "password_reset",
+    entity: "user",
+    entityId: id,
+    detail: `${target.email} — ${revoked} session(s) signed out`,
+  });
+
+  return c.json({ ok: true, revoked });
 });
 
 userRoutes.delete("/:id", async (c) => {

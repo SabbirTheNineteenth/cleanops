@@ -39,6 +39,10 @@ export const changePasswordSchema = z.object({
   newPassword: strongPassword,
 });
 
+export const resetPasswordSchema = z.object({
+  password: strongPassword,
+});
+
 export const profileSchema = z.object({
   name: z.string().min(2, "Name is too short").max(80),
   phone: z.string().max(40).optional().default(""),
