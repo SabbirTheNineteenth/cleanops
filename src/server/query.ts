@@ -66,6 +66,12 @@ export function parseListQuery(
   };
 }
 
+export function clampListQuery(query: ListQuery, total: number): ListQuery {
+  const totalPages = Math.max(1, Math.ceil(total / query.pageSize));
+  const page = Math.min(query.page, totalPages);
+  return { ...query, page, offset: (page - 1) * query.pageSize };
+}
+
 export function listMeta(query: ListQuery, total: number): ListMeta {
   const totalPages = Math.max(1, Math.ceil(total / query.pageSize));
   const page = Math.min(query.page, totalPages);
@@ -111,12 +117,26 @@ export interface DateRange {
 export function parseDateRange(c: Context, fallbackDays = 30): DateRange {
   const raw = c.req.query();
   const days = Math.min(365, Math.max(1, toInt(raw.days, fallbackDays)));
-  const isDate = (value: string | undefined) => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""));
+  const isDate = (value: string | undefined) => {
+    const text = String(value ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+    const parsed = new Date(`${text}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+  };
+
+  if (raw.from !== undefined && !isDate(raw.from)) {
+    throw new RangeError("from must be a valid calendar date (YYYY-MM-DD)");
+  }
+  if (raw.to !== undefined && !isDate(raw.to)) {
+    throw new RangeError("to must be a valid calendar date (YYYY-MM-DD)");
+  }
 
   const to = isDate(raw.to) ? String(raw.to) : new Date().toISOString().slice(0, 10);
   const fromDefault = new Date(`${to}T00:00:00Z`);
   fromDefault.setUTCDate(fromDefault.getUTCDate() - (days - 1));
   const from = isDate(raw.from) ? String(raw.from) : fromDefault.toISOString().slice(0, 10);
+
+  if (from > to) throw new RangeError("from must be on or before to");
 
   const spanMs = new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime();
   return {

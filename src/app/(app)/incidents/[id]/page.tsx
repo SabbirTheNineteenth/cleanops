@@ -53,6 +53,7 @@ interface Incident {
   aiRecommendedRole: string | null;
   aiResponseWindow: string | null;
   aiSource: string | null;
+  aiStatus: "pending" | "processing" | "completed" | "failed";
   resolutionNote: string | null;
   dueAt: string | null;
   createdAt: string;
@@ -262,6 +263,11 @@ export default function IncidentDetailPage() {
                     {incident.aiSource === "openrouter" ? "OpenRouter AI" : "Heuristic"}
                   </Badge>
                 )}
+                {(incident.aiStatus === "pending" || incident.aiStatus === "processing") && (
+                  <Badge className="bg-amber-50 text-amber-700 ring-amber-600/20">
+                    <RefreshCw size={11} className="animate-spin" /> AI analysis pending
+                  </Badge>
+                )}
               </div>
               {isAdmin && (
                 <Button variant="secondary" className="text-xs" onClick={reanalyze} disabled={busy}>
@@ -317,8 +323,10 @@ export default function IncidentDetailPage() {
                     <p className="mt-0.5 text-ink-700">{incident.aiSuggestedAction}</p>
                   </div>
                 </div>
+              ) : incident.aiStatus === "failed" ? (
+                <p className="text-sm text-red-500">AI analysis failed. An admin can retry it.</p>
               ) : (
-                <p className="text-sm text-ink-400">No AI analysis available.</p>
+                <p className="text-sm text-ink-400">AI analysis is pending.</p>
               )}
             </div>
           </Card>

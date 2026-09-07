@@ -3,7 +3,7 @@ import { and, desc, eq, gte, like, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLogs, users } from "@/db/schema";
 import { logAudit } from "../activity";
-import { listMeta, optionalId, parseListQuery, searchPattern } from "../query";
+import { clampListQuery, listMeta, optionalId, parseListQuery, searchPattern } from "../query";
 import { csvResponse, stamped, toCsv } from "../csv";
 import { requireAuth, requireAdmin, type Variables } from "../middleware";
 
@@ -48,9 +48,11 @@ auditRoutes.get("/", async (c) => {
   const conditions = conditionsFor(c.req.query(), query.q);
   const where = conditions.length ? and(...conditions) : undefined;
 
-  const [rows, countRow] = await Promise.all([
-    db
-      .select({
+  const countRow = await db.select({ total: sql<number>`count(*)` }).from(auditLogs).where(where).get();
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select({
         id: auditLogs.id,
         actorId: auditLogs.actorId,
         actorEmail: auditLogs.actorEmail,
@@ -62,16 +64,14 @@ auditRoutes.get("/", async (c) => {
         ip: auditLogs.ip,
         userAgent: auditLogs.userAgent,
         createdAt: auditLogs.createdAt,
-      })
-      .from(auditLogs)
-      .leftJoin(users, eq(auditLogs.actorId, users.id))
-      .where(where)
-      .orderBy(query.dir === "asc" ? auditLogs.createdAt : desc(auditLogs.createdAt), desc(auditLogs.id))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
-    db.select({ total: sql<number>`count(*)` }).from(auditLogs).where(where).get(),
-  ]);
+    })
+    .from(auditLogs)
+    .leftJoin(users, eq(auditLogs.actorId, users.id))
+    .where(where)
+    .orderBy(query.dir === "asc" ? auditLogs.createdAt : desc(auditLogs.createdAt), desc(auditLogs.id))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   if (query.isExport) {
     const csv = toCsv(
@@ -92,7 +92,7 @@ auditRoutes.get("/", async (c) => {
     return csvResponse(c, stamped("audit-log"), csv);
   }
 
-  return c.json({ data: rows, meta: listMeta(query, Number(countRow?.total ?? 0)) });
+  return c.json({ data: rows, meta: listMeta(pagedQuery, total) });
 });
 
 auditRoutes.get("/meta", async (c) => {

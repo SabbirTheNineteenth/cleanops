@@ -96,6 +96,9 @@ export const incidents = sqliteTable("incidents", {
   aiRecommendedRole: text("ai_recommended_role"),
   aiResponseWindow: text("ai_response_window"),
   aiSource: text("ai_source", { enum: ["openrouter", "heuristic"] }),
+  aiStatus: text("ai_status", { enum: ["pending", "processing", "completed", "failed"] })
+    .notNull()
+    .default("pending"),
   resolutionNote: text("resolution_note"),
   dueAt: text("due_at"),
   createdAt: text("created_at")

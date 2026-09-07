@@ -40,79 +40,19 @@ import {
 } from "@/components/ui";
 import { PageHeader } from "@/components/PageHeader";
 import { TableShell } from "@/components/list";
-
-interface Tally {
-  total: number;
-  open: number;
-  resolved: number;
-  urgent: number;
-  overdue: number;
-  breached: number;
-  met: number;
-  slaRate: number | null;
-  avgResolution: string;
-}
-
-interface RangeInfo {
-  from: string;
-  to: string;
-  days: number;
-}
-
-interface Overview {
-  range: RangeInfo;
-  summary: Tally;
-  byStatus: { key: string; total: number }[];
-  bySeverity: { key: string; total: number }[];
-  trend: { day: string; total: number; resolved: number }[];
-  topSites: { siteId: number; name: string; code: string; total: number }[];
-}
-
-interface SiteRow extends Tally {
-  siteId: number;
-  name: string;
-  code: string;
-  location: string;
-  status: string;
-}
-
-interface WorkerRow extends Tally {
-  workerId: number;
-  name: string;
-  role: string;
-  status: string;
-}
-
-interface CategoryRow extends Tally {
-  category: string;
-}
-
-interface SlaRow {
-  id: number;
-  title: string;
-  severity: string;
-  status: string;
-  dueAt: string | null;
-  resolvedAt: string | null;
-  createdAt: string;
-  siteName: string | null;
-  workerName: string | null;
-  sla: { label: string; tone: string; state: string };
-}
-
-interface SlaReport {
-  range: RangeInfo;
-  summary: Tally;
-  breaches: SlaRow[];
-  atRisk: SlaRow[];
-}
-
-interface TallyRow extends Tally {
-  key: string;
-  label: string;
-  sub: string;
-  href?: string;
-}
+import {
+  dayStampAt,
+  reportRowsFor,
+  reportSearchParams,
+  type CategoryRow,
+  type Overview,
+  type SiteRow,
+  type SlaReport,
+  type SlaRow,
+  type Tally,
+  type TallyRow,
+  type WorkerRow,
+} from "./report-helpers";
 
 type TabKey = "overview" | "sites" | "workers" | "categories" | "sla";
 
@@ -137,30 +77,25 @@ const HEADS: Record<string, string> = {
   categories: "Category",
 };
 
-function dayStamp(offsetDays = 0): string {
-  const date = new Date();
-  date.setDate(date.getDate() - offsetDays);
-  return date.toISOString().slice(0, 10);
-}
-
 export default function ReportsPage() {
   const [tab, setTab] = useState<TabKey>("overview");
   const [preset, setPreset] = useState("30");
-  const [from, setFrom] = useState(dayStamp(29));
-  const [to, setTo] = useState(dayStamp(0));
+  const today = () => dayStampAt(new Date());
+  const [from, setFrom] = useState(() => dayStampAt(new Date(), 29));
+  const [to, setTo] = useState(today);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [rows, setRows] = useState<TallyRow[] | null>(null);
   const [sla, setSla] = useState<SlaReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const query = useMemo(() => `from=${from}&to=${to}`, [from, to]);
+  const query = useMemo(() => reportSearchParams(from, to), [from, to]);
 
   function applyPreset(value: string) {
     setPreset(value);
     if (!value) return;
-    setFrom(dayStamp(Number(value) - 1));
-    setTo(dayStamp(0));
+    setFrom(dayStampAt(new Date(), Number(value) - 1));
+    setTo(dayStampAt(new Date()));
   }
 
   const load = useCallback(async () => {
@@ -173,35 +108,13 @@ export default function ReportsPage() {
         setSla(await getJSON<SlaReport>(`/reports/sla?${query}`));
       } else if (tab === "sites") {
         const res = await getJSON<{ data: SiteRow[] }>(`/reports/sites?${query}`);
-        setRows(
-          (res.data ?? []).map((row) => ({
-            ...row,
-            key: `site-${row.siteId}`,
-            label: row.name,
-            sub: [row.code, row.location].filter(Boolean).join(" · "),
-            href: `/sites/${row.siteId}`,
-          })),
-        );
+        setRows(reportRowsFor("sites", res.data ?? []));
       } else if (tab === "workers") {
         const res = await getJSON<{ data: WorkerRow[] }>(`/reports/workers?${query}`);
-        setRows(
-          (res.data ?? []).map((row) => ({
-            ...row,
-            key: `worker-${row.workerId}`,
-            label: row.name,
-            sub: `${row.role} · ${row.status}`,
-          })),
-        );
+        setRows(reportRowsFor("workers", res.data ?? []));
       } else {
         const res = await getJSON<{ data: CategoryRow[] }>(`/reports/categories?${query}`);
-        setRows(
-          (res.data ?? []).map((row) => ({
-            ...row,
-            key: `cat-${row.category}`,
-            label: row.category,
-            sub: "",
-          })),
-        );
+        setRows(reportRowsFor("categories", res.data ?? []));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the report");
@@ -267,7 +180,7 @@ export default function ReportsPage() {
           type="date"
           value={to}
           min={from}
-          max={dayStamp(0)}
+          max={today()}
           onChange={(e) => {
             setPreset("");
             setTo(e.target.value);

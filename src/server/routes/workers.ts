@@ -7,6 +7,7 @@ import { slaInfo } from "@/lib/sla";
 import { sqlNow } from "@/lib/time";
 import { logAudit } from "../activity";
 import {
+  clampListQuery,
   listMeta,
   optionalId,
   orderFor,
@@ -69,9 +70,15 @@ workerRoutes.get("/", async (c) => {
   const where = conditions.length ? and(...conditions) : undefined;
   const column = (SORT_COLUMNS[query.sort] ?? workers.name) as never;
 
-  const [rows, countRow] = await Promise.all([
-    db
-      .select({
+  const countRow = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(workers)
+    .where(where)
+    .get();
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select({
         id: workers.id,
         userId: workers.userId,
         name: workers.name,
@@ -83,19 +90,13 @@ workerRoutes.get("/", async (c) => {
         openIncidents: openLoad,
         resolvedIncidents: resolvedLoad,
         siteCount: siteLoad,
-      })
-      .from(workers)
-      .where(where)
-      .orderBy(orderFor(column, query.dir))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
-    db
-      .select({ total: sql<number>`count(*)` })
-      .from(workers)
-      .where(where)
-      .get(),
-  ]);
+    })
+    .from(workers)
+    .where(where)
+    .orderBy(orderFor(column, query.dir))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   if (query.isExport) {
     const csv = toCsv(
@@ -118,7 +119,7 @@ workerRoutes.get("/", async (c) => {
     return csvResponse(c, stamped("workers"), csv);
   }
 
-  return c.json({ data: rows, meta: listMeta(query, Number(countRow?.total ?? 0)) });
+  return c.json({ data: rows, meta: listMeta(pagedQuery, total) });
 });
 
 workerRoutes.get("/roles", async (c) => {

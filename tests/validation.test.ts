@@ -131,11 +131,11 @@ test("assignments need positive integer ids", () => {
   assert.equal(assignmentSchema.safeParse({ siteId: "1", workerId: 2 }).success, false);
 });
 
-test("a new incident only needs a title and a site", () => {
+test("a new incident only needs a title and a site and leaves severity for AI triage", () => {
   const parsed = incidentSchema.safeParse({ title: "Water leak", siteId: 3 });
   assert.equal(parsed.success, true);
   if (parsed.success) {
-    assert.equal(parsed.data.severity, "medium");
+    assert.equal(parsed.data.severity, undefined);
     assert.equal(parsed.data.category, "general");
     assert.equal(parsed.data.description, "");
   }

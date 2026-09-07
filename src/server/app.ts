@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { assertAuthConfiguration } from "@/lib/auth";
 import { authRoutes } from "./routes/auth";
 import { siteRoutes } from "./routes/sites";
 import { workerRoutes } from "./routes/workers";
@@ -11,6 +12,8 @@ import { reportRoutes } from "./routes/reports";
 import { statsRoutes } from "./routes/stats";
 import { userRoutes } from "./routes/users";
 import type { Variables } from "./middleware";
+
+assertAuthConfiguration();
 
 export const app = new Hono<{ Variables: Variables }>().basePath("/api");
 

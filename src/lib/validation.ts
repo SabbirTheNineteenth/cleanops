@@ -73,7 +73,7 @@ export const incidentSchema = z.object({
   description: z.string().max(4000).optional().default(""),
   category: z.string().max(60).optional().default("general"),
   siteId: z.number().int().positive(),
-  severity: z.enum(["low", "medium", "high", "critical"]).optional().default("medium"),
+  severity: z.enum(["low", "medium", "high", "critical"]).optional(),
 });
 
 export const incidentUpdateSchema = z.object({

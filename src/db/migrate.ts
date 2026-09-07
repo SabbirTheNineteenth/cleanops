@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   ai_recommended_role TEXT,
   ai_response_window TEXT,
   ai_source TEXT,
+  ai_status TEXT NOT NULL DEFAULT 'pending',
   resolution_note TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
@@ -151,6 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_incidents_assigned ON incidents(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_at);
 CREATE INDEX IF NOT EXISTS idx_assignments_site ON assignments(site_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_worker ON assignments(worker_id);
+
 CREATE INDEX IF NOT EXISTS idx_comments_incident ON incident_comments(incident_id);
 CREATE INDEX IF NOT EXISTS idx_events_incident ON incident_events(incident_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_incident ON incident_tasks(incident_id);
@@ -178,6 +180,16 @@ CREATE INDEX IF NOT EXISTS idx_attempts_ip ON auth_attempts(ip, created_at);
   await db.execute(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_user ON workers(user_id) WHERE user_id IS NOT NULL`,
   );
+  await db.execute(`
+    UPDATE assignments
+    SET active = 0, unassigned_at = COALESCE(unassigned_at, CURRENT_TIMESTAMP)
+    WHERE active = 1 AND id NOT IN (
+      SELECT MAX(id) FROM assignments WHERE active = 1 GROUP BY site_id, worker_id
+    )
+  `);
+  await db.execute(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_active_site_worker ON assignments(site_id, worker_id) WHERE active = 1`,
+  );
 
   const incidentCols = await db.execute(`PRAGMA table_info(incidents)`);
   const hasCol = (name: string) => incidentCols.rows.some((col) => col.name === name);
@@ -192,6 +204,10 @@ CREATE INDEX IF NOT EXISTS idx_attempts_ip ON auth_attempts(ip, created_at);
   if (!hasCol("ai_source")) {
     await db.execute(`ALTER TABLE incidents ADD COLUMN ai_source TEXT`);
     console.log("Added incidents.ai_source column");
+  }
+  if (!hasCol("ai_status")) {
+    await db.execute(`ALTER TABLE incidents ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'pending'`);
+    console.log("Added incidents.ai_status column");
   }
   if (!hasCol("due_at")) {
     await db.execute(`ALTER TABLE incidents ADD COLUMN due_at TEXT`);

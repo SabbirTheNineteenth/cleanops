@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { auditLogs, incidentEvents, notifications, users } from "@/db/schema";
 import type { AppContext } from "./middleware";
 
+type WriteExecutor = Pick<typeof db, "insert">;
+
 export function clientIp(c: AppContext): string {
   const header =
     c.req.header("x-forwarded-for") ??
@@ -25,25 +27,24 @@ export interface AuditEntry {
   actorEmail?: string;
 }
 
+export async function writeAudit(c: AppContext, entry: AuditEntry, executor: WriteExecutor = db): Promise<void> {
+  const current = c.get("user") as { sub?: string; email?: string } | undefined;
+  const actorId = entry.actorId !== undefined ? entry.actorId : current?.sub ? Number(current.sub) : null;
+  await executor.insert(auditLogs).values({
+    actorId: actorId ?? null,
+    actorEmail: entry.actorEmail ?? current?.email ?? "system",
+    action: entry.action,
+    entity: entry.entity,
+    entityId: entry.entityId ?? null,
+    detail: (entry.detail ?? "").slice(0, 500),
+    ip: clientIp(c),
+    userAgent: clientAgent(c),
+  });
+}
+
 export async function logAudit(c: AppContext, entry: AuditEntry): Promise<void> {
   try {
-    const current = c.get("user") as { sub?: string; email?: string } | undefined;
-    const actorId =
-      entry.actorId !== undefined
-        ? entry.actorId
-        : current?.sub
-          ? Number(current.sub)
-          : null;
-    await db.insert(auditLogs).values({
-      actorId: actorId ?? null,
-      actorEmail: entry.actorEmail ?? current?.email ?? "system",
-      action: entry.action,
-      entity: entry.entity,
-      entityId: entry.entityId ?? null,
-      detail: (entry.detail ?? "").slice(0, 500),
-      ip: clientIp(c),
-      userAgent: clientAgent(c),
-    });
+    await writeAudit(c, entry);
   } catch (err) {
     console.error("[audit] failed:", err);
   }
@@ -57,19 +58,21 @@ export interface NotifyEntry {
   link?: string | null;
 }
 
-export async function notify(entries: NotifyEntry[]): Promise<void> {
+export async function writeNotifications(entries: NotifyEntry[], executor: WriteExecutor = db): Promise<void> {
   const rows = entries.filter((entry) => Number.isFinite(entry.userId) && entry.userId > 0);
-  if (rows.length === 0) return;
+  if (!rows.length) return;
+  await executor.insert(notifications).values(rows.map((entry) => ({
+    userId: entry.userId,
+    type: entry.type ?? "info",
+    title: entry.title.slice(0, 160),
+    body: (entry.body ?? "").slice(0, 500),
+    link: entry.link ?? null,
+  })));
+}
+
+export async function notify(entries: NotifyEntry[]): Promise<void> {
   try {
-    await db.insert(notifications).values(
-      rows.map((entry) => ({
-        userId: entry.userId,
-        type: entry.type ?? "info",
-        title: entry.title.slice(0, 160),
-        body: (entry.body ?? "").slice(0, 500),
-        link: entry.link ?? null,
-      })),
-    );
+    await writeNotifications(entries);
   } catch (err) {
     console.error("[notify] failed:", err);
   }
@@ -80,15 +83,10 @@ export async function notifyAdmins(
   exceptUserId?: number | null,
 ): Promise<void> {
   try {
-    const admins = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.role, "admin"), eq(users.status, "active")))
-      .all();
-    const targets = admins
-      .map((row) => row.id)
-      .filter((id) => id !== (exceptUserId ?? -1));
-    await notify(targets.map((userId) => ({ ...entry, userId })));
+    const admins = await db.select({ id: users.id }).from(users)
+      .where(and(eq(users.role, "admin"), eq(users.status, "active"))).all();
+    await notify(admins.map((row) => row.id).filter((id) => id !== (exceptUserId ?? -1))
+      .map((userId) => ({ ...entry, userId })));
   } catch (err) {
     console.error("[notify-admins] failed:", err);
   }
@@ -104,17 +102,21 @@ export interface EventEntry {
   toValue?: string | null;
 }
 
+export async function writeEvent(entry: EventEntry, executor: WriteExecutor = db): Promise<void> {
+  await executor.insert(incidentEvents).values({
+    incidentId: entry.incidentId,
+    actorId: entry.actorId ?? null,
+    actorName: entry.actorName ?? "System",
+    type: entry.type,
+    message: entry.message.slice(0, 400),
+    fromValue: entry.fromValue ?? null,
+    toValue: entry.toValue ?? null,
+  });
+}
+
 export async function logEvent(entry: EventEntry): Promise<void> {
   try {
-    await db.insert(incidentEvents).values({
-      incidentId: entry.incidentId,
-      actorId: entry.actorId ?? null,
-      actorName: entry.actorName ?? "System",
-      type: entry.type,
-      message: entry.message.slice(0, 400),
-      fromValue: entry.fromValue ?? null,
-      toValue: entry.toValue ?? null,
-    });
+    await writeEvent(entry);
   } catch (err) {
     console.error("[event] failed:", err);
   }

@@ -7,6 +7,7 @@ import { adminCreateUserSchema, resetPasswordSchema, userUpdateSchema } from "@/
 import { logAudit, notify } from "../activity";
 import { revokeOtherSessions } from "../sessions";
 import {
+  clampListQuery,
   listMeta,
   orderFor,
   parseListQuery,
@@ -87,20 +88,7 @@ userRoutes.get("/", async (c) => {
   const where = conditions.length ? and(...conditions) : undefined;
   const column = (SORT_COLUMNS[query.sort] ?? users.createdAt) as never;
 
-  const [rows, countRow, tally] = await Promise.all([
-    db
-      .select({
-        ...publicUserCols,
-        workerId: workers.id,
-        workerRole: workers.role,
-      })
-      .from(users)
-      .leftJoin(workers, eq(workers.userId, users.id))
-      .where(where)
-      .orderBy(orderFor(column, query.dir))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
+  const [countRow, tally] = await Promise.all([
     db.select({ total: sql<number>`count(*)` }).from(users).where(where).get(),
     db
       .select({
@@ -111,6 +99,21 @@ userRoutes.get("/", async (c) => {
       .from(users)
       .get(),
   ]);
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select({
+        ...publicUserCols,
+        workerId: workers.id,
+        workerRole: workers.role,
+    })
+    .from(users)
+    .leftJoin(workers, eq(workers.userId, users.id))
+    .where(where)
+    .orderBy(orderFor(column, query.dir))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   const data = rows;
 
@@ -133,7 +136,7 @@ userRoutes.get("/", async (c) => {
 
   return c.json({
     data,
-    meta: listMeta(query, Number(countRow?.total ?? 0)),
+    meta: listMeta(pagedQuery, total),
     summary: {
       pending: Number(tally?.pending ?? 0),
       banned: Number(tally?.banned ?? 0),

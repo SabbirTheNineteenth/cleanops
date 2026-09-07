@@ -6,6 +6,7 @@ import {
   DEFAULT_PAGE_SIZE,
   EXPORT_PAGE_SIZE,
   MAX_PAGE_SIZE,
+  clampListQuery,
   listMeta,
   optionalId,
   orderFor,
@@ -116,6 +117,23 @@ test("listMeta clamps a page past the end back to the last page", () => {
   assert.equal(meta.hasPrev, true);
 });
 
+test("clampListQuery makes an out-of-range request query the actual final page", () => {
+  const query = clampListQuery(parse({ page: "9", pageSize: "10" }), 25);
+  assert.equal(query.page, 3);
+  assert.equal(query.offset, 20);
+  assert.deepEqual(listMeta(query, 25), {
+    page: 3,
+    pageSize: 10,
+    total: 25,
+    totalPages: 3,
+    hasPrev: true,
+    hasNext: false,
+    sort: "createdAt",
+    dir: "desc",
+    q: "",
+  });
+});
+
 test("listMeta echoes the sort, dir and search back to the client", () => {
   const meta = listMeta(parse({ sort: "name", dir: "asc", q: " leak " }), 3);
   assert.equal(meta.sort, "name");
@@ -174,13 +192,26 @@ test("parseDateRange derives from when only days and to are given", () => {
   assert.equal(range.days, 3);
 });
 
-test("parseDateRange clamps days and ignores malformed dates", () => {
+test("parseDateRange clamps days and rejects malformed dates", () => {
   assert.equal(parseDateRange(fakeContext({ to: "2026-03-10", days: "9999" })).days, 365);
   assert.equal(parseDateRange(fakeContext({ to: "2026-03-10", days: "0" })).days, 1);
-  const bad = parseDateRange(fakeContext({ from: "05-03-2026", to: "2026-03-10", days: "2" }));
-  assert.equal(bad.from, "2026-03-09 00:00:00");
+  assert.throws(
+    () => parseDateRange(fakeContext({ from: "05-03-2026", to: "2026-03-10", days: "2" })),
+    /valid calendar date/,
+  );
 });
 
 test("parseDateRange accepts a caller supplied fallback window", () => {
   assert.equal(parseDateRange(fakeContext({ to: "2026-03-10" }), 7).days, 7);
+});
+
+test("parseDateRange rejects impossible and reversed calendar dates", () => {
+  assert.throws(
+    () => parseDateRange(fakeContext({ from: "2026-02-30", to: "2026-03-10" })),
+    /valid calendar date/,
+  );
+  assert.throws(
+    () => parseDateRange(fakeContext({ from: "2026-03-10", to: "2026-03-01" })),
+    /on or before/,
+  );
 });

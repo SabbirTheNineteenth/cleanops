@@ -14,9 +14,23 @@ export interface SessionPayload {
   jti: string;
 }
 
+export function validateJwtSecret(secret: string | undefined): string {
+  const value = secret?.trim();
+  if (!value || value === "dev-insecure-secret-change-me" || value.startsWith("change-me-")) {
+    throw new Error("JWT_SECRET must be configured with a strong, unique value");
+  }
+  if (value.length < 32) {
+    throw new Error("JWT_SECRET must be at least 32 characters long");
+  }
+  return value;
+}
+
+export function assertAuthConfiguration(): void {
+  validateJwtSecret(process.env.JWT_SECRET);
+}
+
 function getSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET || "dev-insecure-secret-change-me";
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(validateJwtSecret(process.env.JWT_SECRET));
 }
 
 export async function hashPassword(plain: string): Promise<string> {

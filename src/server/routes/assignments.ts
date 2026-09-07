@@ -6,6 +6,7 @@ import { assignmentSchema } from "@/lib/validation";
 import { sqlNow } from "@/lib/time";
 import { logAudit, notify } from "../activity";
 import {
+  clampListQuery,
   listMeta,
   optionalId,
   orderFor,
@@ -26,6 +27,12 @@ const SORT_COLUMNS: Record<string, unknown> = {
   siteName: sites.name,
   workerName: workers.name,
 };
+
+export function isUniqueActiveAssignmentError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /(?:unique constraint|sqlite_constraint_unique)/i.test(message)
+    && /assignments\.(?:site_id|worker_id)|idx_assignments_active_site_worker/i.test(message);
+}
 
 function conditionsFor(query: Record<string, string>, search: string) {
   const conditions = [];
@@ -59,9 +66,17 @@ assignmentRoutes.get("/", async (c) => {
   const where = and(...conditions);
   const column = (SORT_COLUMNS[query.sort] ?? assignments.assignedAt) as never;
 
-  const [rows, countRow] = await Promise.all([
-    db
-      .select({
+  const countRow = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(assignments)
+    .leftJoin(sites, eq(assignments.siteId, sites.id))
+    .leftJoin(workers, eq(assignments.workerId, workers.id))
+    .where(where)
+    .get();
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select({
         id: assignments.id,
         siteId: assignments.siteId,
         workerId: assignments.workerId,
@@ -73,23 +88,15 @@ assignmentRoutes.get("/", async (c) => {
         workerName: workers.name,
         workerRole: workers.role,
         workerStatus: workers.status,
-      })
-      .from(assignments)
-      .leftJoin(sites, eq(assignments.siteId, sites.id))
-      .leftJoin(workers, eq(assignments.workerId, workers.id))
-      .where(where)
-      .orderBy(orderFor(column, query.dir))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
-    db
-      .select({ total: sql<number>`count(*)` })
-      .from(assignments)
-      .leftJoin(sites, eq(assignments.siteId, sites.id))
-      .leftJoin(workers, eq(assignments.workerId, workers.id))
-      .where(where)
-      .get(),
-  ]);
+    })
+    .from(assignments)
+    .leftJoin(sites, eq(assignments.siteId, sites.id))
+    .leftJoin(workers, eq(assignments.workerId, workers.id))
+    .where(where)
+    .orderBy(orderFor(column, query.dir))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   if (query.isExport) {
     const csv = toCsv(
@@ -109,7 +116,7 @@ assignmentRoutes.get("/", async (c) => {
     return csvResponse(c, stamped("assignments"), csv);
   }
 
-  return c.json({ data: rows, meta: listMeta(query, Number(countRow?.total ?? 0)) });
+  return c.json({ data: rows, meta: listMeta(pagedQuery, total) });
 });
 
 assignmentRoutes.post("/", requireAdmin, async (c) => {
@@ -139,11 +146,19 @@ assignmentRoutes.post("/", requireAdmin, async (c) => {
     .get();
   if (dup) return c.json({ error: "Worker already assigned to this site" }, 409);
 
-  const row = await db
-    .insert(assignments)
-    .values({ siteId, workerId, active: true })
-    .returning()
-    .get();
+  let row: typeof assignments.$inferSelect;
+  try {
+    row = await db
+      .insert(assignments)
+      .values({ siteId, workerId, active: true })
+      .returning()
+      .get();
+  } catch (error) {
+    if (isUniqueActiveAssignmentError(error)) {
+      return c.json({ error: "Worker already assigned to this site" }, 409);
+    }
+    throw error;
+  }
 
   await db.update(workers).set({ status: "assigned" }).where(eq(workers.id, workerId));
 

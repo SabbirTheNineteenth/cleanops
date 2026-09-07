@@ -236,6 +236,7 @@ authRoutes.get("/sessions", requireAuth, async (c) => {
 authRoutes.delete("/sessions/:id", requireAuth, async (c) => {
   const session = c.get("user");
   const id = c.req.param("id");
+  if (!id) return c.json({ error: "Session not found" }, 404);
   const revoked = await revokeSession(id, Number(session.sub));
   if (!revoked) return c.json({ error: "Session not found" }, 404);
   await logAudit(c, { action: "revoke_session", entity: "session", detail: id });

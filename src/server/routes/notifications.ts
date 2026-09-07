@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import { sqlNow } from "@/lib/time";
-import { listMeta, parseListQuery, searchPattern } from "../query";
+import { clampListQuery, listMeta, parseListQuery, searchPattern } from "../query";
 import { requireAuth, type Variables } from "../middleware";
 
 export const notificationRoutes = new Hono<{ Variables: Variables }>();
@@ -37,15 +37,7 @@ notificationRoutes.get("/", async (c) => {
   }
   const where = and(...conditions);
 
-  const [rows, countRow, unreadRow] = await Promise.all([
-    db
-      .select()
-      .from(notifications)
-      .where(where)
-      .orderBy(desc(notifications.createdAt), desc(notifications.id))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
+  const [countRow, unreadRow] = await Promise.all([
     db.select({ total: sql<number>`count(*)` }).from(notifications).where(where).get(),
     db
       .select({ total: sql<number>`count(*)` })
@@ -53,10 +45,20 @@ notificationRoutes.get("/", async (c) => {
       .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)))
       .get(),
   ]);
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select()
+    .from(notifications)
+    .where(where)
+    .orderBy(desc(notifications.createdAt), desc(notifications.id))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   return c.json({
     data: rows.map((row) => ({ ...row, read: Boolean(row.readAt) })),
-    meta: listMeta(query, Number(countRow?.total ?? 0)),
+    meta: listMeta(pagedQuery, total),
     unread: Number(unreadRow?.total ?? 0),
   });
 });

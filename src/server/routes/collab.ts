@@ -13,7 +13,7 @@ import { commentSchema, taskSchema, taskUpdateSchema } from "@/lib/validation";
 import { sqlNow } from "@/lib/time";
 import { logAudit, logEvent, notify, notifyAdmins } from "../activity";
 import { RATE_RULES, overLimit, recordAttempt, retryAfterMessage } from "../ratelimit";
-import { listMeta, parseListQuery } from "../query";
+import { clampListQuery, listMeta, parseListQuery } from "../query";
 import { requireAuth, type AppContext, type Variables } from "../middleware";
 
 export const collabRoutes = new Hono<{ Variables: Variables }>();
@@ -95,31 +95,31 @@ collabRoutes.get("/:id/comments", async (c) => {
     defaultPageSize: 50,
   });
 
-  const [rows, countRow] = await Promise.all([
-    db
-      .select({
+  const countRow = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(incidentComments)
+    .where(eq(incidentComments.incidentId, id))
+    .get();
+  const total = Number(countRow?.total ?? 0);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await db
+    .select({
         id: incidentComments.id,
         body: incidentComments.body,
         authorId: incidentComments.authorId,
         authorName: incidentComments.authorName,
         createdAt: incidentComments.createdAt,
         authorRole: users.role,
-      })
-      .from(incidentComments)
-      .leftJoin(users, eq(incidentComments.authorId, users.id))
-      .where(eq(incidentComments.incidentId, id))
-      .orderBy(query.dir === "desc" ? desc(incidentComments.createdAt) : asc(incidentComments.createdAt))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
-    db
-      .select({ total: sql<number>`count(*)` })
-      .from(incidentComments)
-      .where(eq(incidentComments.incidentId, id))
-      .get(),
-  ]);
+    })
+    .from(incidentComments)
+    .leftJoin(users, eq(incidentComments.authorId, users.id))
+    .where(eq(incidentComments.incidentId, id))
+    .orderBy(query.dir === "desc" ? desc(incidentComments.createdAt) : asc(incidentComments.createdAt))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
-  return c.json({ data: rows, meta: listMeta(query, Number(countRow?.total ?? 0)) });
+  return c.json({ data: rows, meta: listMeta(pagedQuery, total) });
 });
 
 collabRoutes.post("/:id/comments", async (c) => {

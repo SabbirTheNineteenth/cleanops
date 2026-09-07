@@ -3,23 +3,16 @@ import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { incidents, sites, workers } from "@/db/schema";
 import { slaInfo } from "@/lib/sla";
-import { formatSpan, sqlNow } from "@/lib/time";
+import { sqlNow } from "@/lib/time";
 import { logAudit } from "../activity";
 import { parseDateRange } from "../query";
 import { csvResponse, stamped, toCsv } from "../csv";
 import { requireAuth, type Variables } from "../middleware";
+import { addSlaRate, normalizeReportTally, reportCount } from "../reports";
 
 export const reportRoutes = new Hono<{ Variables: Variables }>();
 
 reportRoutes.use("*", requireAuth);
-
-const num = (value: unknown) => Number(value ?? 0);
-const round = (value: unknown, digits = 1) => {
-  const parsed = Number(value ?? 0);
-  if (!Number.isFinite(parsed)) return 0;
-  const factor = 10 ** digits;
-  return Math.round(parsed * factor) / factor;
-};
 
 const resolutionMinutes = sql<number>`avg(case when ${incidents.status} = 'resolved' and ${incidents.resolvedAt} is not null then (julianday(${incidents.resolvedAt}) - julianday(${incidents.createdAt})) * 1440 end)`;
 
@@ -33,17 +26,6 @@ function tallyColumns(now: string) {
     breached: sql<number>`sum(case when ${incidents.status} = 'resolved' and ${incidents.dueAt} is not null and ${incidents.resolvedAt} > ${incidents.dueAt} then 1 else 0 end)`,
     met: sql<number>`sum(case when ${incidents.status} = 'resolved' and ${incidents.dueAt} is not null and ${incidents.resolvedAt} <= ${incidents.dueAt} then 1 else 0 end)`,
     avgMinutes: resolutionMinutes,
-  };
-}
-
-function withRate<T extends { resolved: number; met: number; breached: number; avgMinutes: number }>(
-  row: T,
-) {
-  const judged = row.met + row.breached;
-  return {
-    ...row,
-    slaRate: judged ? Math.round((row.met / judged) * 100) : null,
-    avgResolution: row.avgMinutes ? formatSpan(Math.round(row.avgMinutes)) : "—",
   };
 }
 
@@ -93,28 +75,19 @@ reportRoutes.get("/overview", async (c) => {
       .all(),
   ]);
 
-  const base = {
-    total: num(tally?.total),
-    open: num(tally?.open),
-    resolved: num(tally?.resolved),
-    urgent: num(tally?.urgent),
-    overdue: num(tally?.overdue),
-    breached: num(tally?.breached),
-    met: num(tally?.met),
-    avgMinutes: round(tally?.avgMinutes, 0),
-  };
+  const base = normalizeReportTally(tally);
 
   return c.json({
     range,
-    summary: withRate(base),
-    byStatus: byStatus.map((row) => ({ key: row.key, total: num(row.total) })),
-    bySeverity: bySeverity.map((row) => ({ key: row.key, total: num(row.total) })),
+    summary: addSlaRate(base),
+    byStatus: byStatus.map((row) => ({ key: row.key, total: reportCount(row.total) })),
+    bySeverity: bySeverity.map((row) => ({ key: row.key, total: reportCount(row.total) })),
     trend: trend.map((row) => ({
       day: row.day,
-      total: num(row.total),
-      resolved: num(row.resolved),
+      total: reportCount(row.total),
+      resolved: reportCount(row.resolved),
     })),
-    topSites: topSites.map((row) => ({ ...row, total: num(row.total) })),
+    topSites: topSites.map((row) => ({ ...row, total: reportCount(row.total) })),
   });
 });
 
@@ -145,20 +118,20 @@ reportRoutes.get("/sites", async (c) => {
     .all();
 
   const data = rows.map((row) =>
-    withRate({
+    addSlaRate({
       siteId: row.siteId,
       name: row.name,
       code: row.code,
       location: row.location,
       status: row.status,
-      total: num(row.total),
-      open: num(row.open),
-      resolved: num(row.resolved),
-      urgent: num(row.urgent),
-      overdue: num(row.overdue),
-      breached: num(row.breached),
-      met: num(row.met),
-      avgMinutes: round(row.avgMinutes, 0),
+      total: reportCount(row.total),
+      open: reportCount(row.open),
+      resolved: reportCount(row.resolved),
+      urgent: reportCount(row.urgent),
+      overdue: reportCount(row.overdue),
+      breached: reportCount(row.breached),
+      met: reportCount(row.met),
+      avgMinutes: reportCount(row.avgMinutes),
     }),
   );
 
@@ -213,19 +186,19 @@ reportRoutes.get("/workers", async (c) => {
     .all();
 
   const data = rows.map((row) =>
-    withRate({
+    addSlaRate({
       workerId: row.workerId,
       name: row.name,
       role: row.role,
       status: row.status,
-      total: num(row.total),
-      open: num(row.open),
-      resolved: num(row.resolved),
-      urgent: num(row.urgent),
-      overdue: num(row.overdue),
-      breached: num(row.breached),
-      met: num(row.met),
-      avgMinutes: round(row.avgMinutes, 0),
+      total: reportCount(row.total),
+      open: reportCount(row.open),
+      resolved: reportCount(row.resolved),
+      urgent: reportCount(row.urgent),
+      overdue: reportCount(row.overdue),
+      breached: reportCount(row.breached),
+      met: reportCount(row.met),
+      avgMinutes: reportCount(row.avgMinutes),
     }),
   );
 
@@ -270,16 +243,16 @@ reportRoutes.get("/categories", async (c) => {
     .all();
 
   const data = rows.map((row) =>
-    withRate({
+    addSlaRate({
       category: row.category,
-      total: num(row.total),
-      open: num(row.open),
-      resolved: num(row.resolved),
-      urgent: num(row.urgent),
-      overdue: num(row.overdue),
-      breached: num(row.breached),
-      met: num(row.met),
-      avgMinutes: round(row.avgMinutes, 0),
+      total: reportCount(row.total),
+      open: reportCount(row.open),
+      resolved: reportCount(row.resolved),
+      urgent: reportCount(row.urgent),
+      overdue: reportCount(row.overdue),
+      breached: reportCount(row.breached),
+      met: reportCount(row.met),
+      avgMinutes: reportCount(row.avgMinutes),
     }),
   );
 
@@ -366,16 +339,7 @@ reportRoutes.get("/sla", async (c) => {
       .all(),
   ]);
 
-  const summary = withRate({
-    total: num(tally?.total),
-    open: num(tally?.open),
-    resolved: num(tally?.resolved),
-    urgent: num(tally?.urgent),
-    overdue: num(tally?.overdue),
-    breached: num(tally?.breached),
-    met: num(tally?.met),
-    avgMinutes: round(tally?.avgMinutes, 0),
-  });
+  const summary = addSlaRate(normalizeReportTally(tally));
 
   const decorate = (row: (typeof breaches)[number]) => ({ ...row, sla: slaInfo(row) });
   const risk = atRisk.map(decorate).filter((row) => row.sla.state === "overdue" || row.sla.state === "due_soon");

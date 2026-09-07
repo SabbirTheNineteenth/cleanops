@@ -9,11 +9,12 @@ import {
   enhanceTextSchema,
 } from "@/lib/validation";
 import { computeDueAt, slaInfo } from "@/lib/sla";
-import { parseTime, sqlNow, toSqlTime } from "@/lib/time";
-import { analyzeIncident, enhanceIncidentText } from "../ai";
-import { logAudit, logEvent, notify, notifyAdmins } from "../activity";
+import { parseTime, sqlNow } from "@/lib/time";
+import { enhanceIncidentText } from "../ai";
+import { logAudit, writeAudit, writeEvent, writeNotifications } from "../activity";
 import { RATE_RULES, aiBlocked, recordAttempt, retryAfterMessage } from "../ratelimit";
 import {
+  clampListQuery,
   listMeta,
   optionalId,
   orderFor,
@@ -23,6 +24,9 @@ import {
 } from "../query";
 import { csvResponse, stamped, toCsv } from "../csv";
 import { requireAuth, requireAdmin, type Variables } from "../middleware";
+import { validateIncidentTransition } from "../workflow";
+import { requestedIncidentStatus, toIncidentDueAt } from "../incident-helpers";
+import { enqueueIncidentTriage } from "../triage";
 
 export const incidentRoutes = new Hono<{ Variables: Variables }>();
 
@@ -77,6 +81,7 @@ function withJoins() {
       aiRecommendedRole: incidents.aiRecommendedRole,
       aiResponseWindow: incidents.aiResponseWindow,
       aiSource: incidents.aiSource,
+      aiStatus: incidents.aiStatus,
       resolutionNote: incidents.resolutionNote,
       dueAt: incidents.dueAt,
       createdAt: incidents.createdAt,
@@ -185,15 +190,14 @@ incidentRoutes.get("/", async (c) => {
   const where = conditions.length ? and(...conditions) : undefined;
   const column = (SORT_COLUMNS[query.sort] ?? incidents.createdAt) as never;
 
-  const [rows, total] = await Promise.all([
-    withJoins()
-      .where(where)
-      .orderBy(orderFor(column, query.dir))
-      .limit(query.pageSize)
-      .offset(query.offset)
-      .all(),
-    countIncidents(conditions),
-  ]);
+  const total = await countIncidents(conditions);
+  const pagedQuery = clampListQuery(query, total);
+  const rows = await withJoins()
+    .where(where)
+    .orderBy(orderFor(column, query.dir))
+    .limit(query.pageSize)
+    .offset(pagedQuery.offset)
+    .all();
 
   const data = rows.map(decorate);
 
@@ -219,7 +223,7 @@ incidentRoutes.get("/", async (c) => {
     return csvResponse(c, stamped("incidents"), csv);
   }
 
-  return c.json({ data, meta: listMeta(query, total) });
+  return c.json({ data, meta: listMeta(pagedQuery, total) });
 });
 
 incidentRoutes.get("/mine", async (c) => {
@@ -302,60 +306,34 @@ incidentRoutes.post("/", async (c) => {
   const site = await db.select().from(sites).where(eq(sites.id, siteId)).get();
   if (!site) return c.json({ error: "Site not found" }, 404);
 
-  const throttled = await aiBlocked(user.sub);
-  const ai = throttled
-    ? null
-    : await analyzeIncident({ title, description, category, siteName: site.name });
-  if (!throttled) await recordAttempt("ai", { subject: `user:${user.sub}`, success: true });
-
-  const finalSeverity = severity ?? ai?.severity ?? "medium";
-  const row = await db
-    .insert(incidents)
-    .values({
-      title,
-      description,
-      category,
-      siteId,
-      reportedBy: Number(user.sub),
-      severity: finalSeverity,
-      aiSummary: ai?.summary,
-      aiSeverity: ai?.severity,
-      aiSuggestedAction: ai?.suggestedAction,
-      aiRecommendedRole: ai?.recommendedRole,
-      aiResponseWindow: ai?.responseWindow,
-      aiSource: ai?.source,
-      dueAt: computeDueAt(finalSeverity, ai?.responseWindow),
-    })
-    .returning()
-    .get();
-
-  await logEvent({
-    incidentId: row.id,
-    type: "created",
-    message: `Reported at ${site.name}`,
-    actorId: Number(user.sub),
-    actorName: user.name,
-    toValue: finalSeverity,
+  const finalSeverity = severity ?? "medium";
+  const admins = (finalSeverity === "critical" || finalSeverity === "high")
+    ? await db.select({ id: users.id }).from(users)
+      .where(and(eq(users.role, "admin"), eq(users.status, "active"))).all()
+    : [];
+  const row = await db.transaction(async (tx) => {
+    const created = await tx.insert(incidents).values({
+      title, description, category, siteId, reportedBy: Number(user.sub), severity: finalSeverity,
+      aiStatus: "pending", dueAt: computeDueAt(finalSeverity),
+    }).returning().get();
+    await writeEvent({
+      incidentId: created.id, type: "created", message: `Reported at ${site.name}`,
+      actorId: Number(user.sub), actorName: user.name, toValue: finalSeverity,
+    }, tx);
+    await writeAudit(c, {
+      action: "create", entity: "incident", entityId: created.id, detail: `${title} (${finalSeverity})`,
+    }, tx);
+    await writeNotifications(admins.filter((admin) => admin.id !== Number(user.sub)).map((admin) => ({
+      userId: admin.id,
+      type: finalSeverity === "critical" ? "critical" : "warning",
+      title: `${finalSeverity === "critical" ? "Critical" : "High"} incident at ${site.name}`,
+      body: title,
+      link: `/incidents/${created.id}`,
+    })), tx);
+    return created;
   });
-  await logAudit(c, {
-    action: "create",
-    entity: "incident",
-    entityId: row.id,
-    detail: `${title} (${finalSeverity})`,
-  });
-  if (finalSeverity === "critical" || finalSeverity === "high") {
-    await notifyAdmins(
-      {
-        type: finalSeverity === "critical" ? "critical" : "warning",
-        title: `${finalSeverity === "critical" ? "Critical" : "High"} incident at ${site.name}`,
-        body: title,
-        link: `/incidents/${row.id}`,
-      },
-      Number(user.sub),
-    );
-  }
-
-  return c.json({ incident: row, ai }, 201);
+  enqueueIncidentTriage(row.id);
+  return c.json({ incident: row, ai: null, triageStatus: "pending" }, 201);
 });
 
 incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
@@ -367,51 +345,19 @@ incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
   const row = await db.select().from(incidents).where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
-  const site = await db.select().from(sites).where(eq(sites.id, row.siteId)).get();
-
   await recordAttempt("ai", { subject: `user:${user.sub}`, success: true });
-  const ai = await analyzeIncident({
-    title: row.title,
-    description: row.description,
-    category: row.category,
-    siteName: site?.name,
+  const updated = await db.transaction(async (tx) => {
+    const pending = await tx.update(incidents).set({ aiStatus: "pending", updatedAt: sqlNow() })
+      .where(eq(incidents.id, id)).returning().get();
+    await writeEvent({
+      incidentId: id, type: "ai", message: "AI re-analysis queued",
+      actorId: Number(user.sub), actorName: user.name,
+    }, tx);
+    await writeAudit(c, { action: "analyze", entity: "incident", entityId: id, detail: "queued" }, tx);
+    return pending;
   });
-
-  const updated = await db
-    .update(incidents)
-    .set({
-      aiSummary: ai.summary,
-      aiSeverity: ai.severity,
-      aiSuggestedAction: ai.suggestedAction,
-      aiRecommendedRole: ai.recommendedRole,
-      aiResponseWindow: ai.responseWindow,
-      aiSource: ai.source,
-      dueAt:
-        row.status === "resolved"
-          ? row.dueAt
-          : computeDueAt(row.severity, ai.responseWindow, new Date()),
-      updatedAt: sqlNow(),
-    })
-    .where(eq(incidents.id, id))
-    .returning()
-    .get();
-
-  await logEvent({
-    incidentId: id,
-    type: "ai",
-    message: `AI re-analysis (${ai.source}) suggested ${ai.severity} severity`,
-    actorId: Number(user.sub),
-    actorName: user.name,
-    toValue: ai.severity,
-  });
-  await logAudit(c, {
-    action: "analyze",
-    entity: "incident",
-    entityId: id,
-    detail: `source ${ai.source}`,
-  });
-
-  return c.json({ incident: updated, ai });
+  enqueueIncidentTriage(id);
+  return c.json({ incident: updated, ai: null, triageStatus: "pending" }, 202);
 });
 
 incidentRoutes.patch("/:id", requireAdmin, async (c) => {
@@ -424,10 +370,23 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
   const parsed = incidentUpdateSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { status, severity, assignedTo, resolutionNote, dueAt } = parsed.data;
+  const nextAssignedTo = assignedTo === undefined ? existing.assignedTo : assignedTo;
+  const nextResolutionNote = resolutionNote === undefined ? existing.resolutionNote : resolutionNote;
+  const requestedStatus = requestedIncidentStatus(status, assignedTo, existing.status);
+  if (requestedStatus) {
+    const transition = validateIncidentTransition(existing.status, requestedStatus, {
+      assignedTo: nextAssignedTo,
+      resolutionNote: nextResolutionNote,
+    });
+    if (!transition.ok) return c.json({ error: transition.error }, 409);
+  }
+  if (assignedTo === null && existing.status !== "open") {
+    return c.json({ error: "Assigned or active incidents cannot be unassigned" }, 409);
+  }
 
   const patch: Record<string, unknown> = { updatedAt: sqlNow() };
-  const events: Parameters<typeof logEvent>[0][] = [];
-  const notices: Parameters<typeof notify>[0] = [];
+  const events: Parameters<typeof writeEvent>[0][] = [];
+  const notices: Parameters<typeof writeNotifications>[0] = [];
   let assignedUserId: number | null = null;
 
   if (assignedTo !== undefined) {
@@ -495,14 +454,9 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
   }
 
   if (dueAt !== undefined) {
-    if (dueAt === null || dueAt === "") {
-      patch.dueAt = null;
-    } else {
-      const parsedDue = parseTime(dueAt);
-      if (!parsedDue) return c.json({ error: "Due date is not a valid date" }, 400);
-      patch.dueAt = toSqlTime(parsedDue);
-    }
-    const nextDue = (patch.dueAt as string | null) ?? null;
+    const nextDue = toIncidentDueAt(dueAt);
+    if (nextDue === undefined) return c.json({ error: "Due date is not a valid date" }, 400);
+    patch.dueAt = nextDue;
     if (nextDue !== (existing.dueAt ?? null)) {
       events.push({
         incidentId: id,
@@ -516,19 +470,19 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
     }
   }
 
-  if (status && status !== existing.status) {
-    patch.status = status;
-    patch.resolvedAt = status === "resolved" ? sqlNow() : null;
+  if (requestedStatus && requestedStatus !== existing.status) {
+    patch.status = requestedStatus;
+    patch.resolvedAt = requestedStatus === "resolved" ? sqlNow() : null;
     events.push({
       incidentId: id,
       type: "status",
-      message: `Status ${existing.status} → ${status}`,
+      message: `Status ${existing.status} → ${requestedStatus}`,
       actorId: Number(user.sub),
       actorName: user.name,
       fromValue: existing.status,
-      toValue: status,
+      toValue: requestedStatus,
     });
-    if (status === "resolved" && existing.reportedBy !== Number(user.sub)) {
+    if (requestedStatus === "resolved" && existing.reportedBy !== Number(user.sub)) {
       notices.push({
         userId: existing.reportedBy,
         type: "resolved",
@@ -539,22 +493,19 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
     }
   }
 
-  const updated = await db
-    .update(incidents)
-    .set(patch)
-    .where(eq(incidents.id, id))
-    .returning()
-    .get();
-
-  for (const event of events) await logEvent(event);
-  if (notices.length) await notify(notices);
-  await logAudit(c, {
-    action: "update",
-    entity: "incident",
-    entityId: id,
-    detail: Object.keys(patch)
-      .filter((key) => key !== "updatedAt")
-      .join(", "),
+  const updated = await db.transaction(async (tx) => {
+    const changed = await tx.update(incidents).set(patch).where(eq(incidents.id, id)).returning().get();
+    for (const event of events) await writeEvent(event, tx);
+    await writeNotifications(notices, tx);
+    await writeAudit(c, {
+      action: "update",
+      entity: "incident",
+      entityId: id,
+      detail: Object.keys(patch)
+        .filter((key) => key !== "updatedAt")
+        .join(", "),
+    }, tx);
+    return changed;
   });
 
   return c.json({ incident: updated });
@@ -584,6 +535,14 @@ incidentRoutes.patch("/:id/work", async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { status, resolutionNote } = parsed.data;
 
+  if (status) {
+    const transition = validateIncidentTransition(existing.status, status, {
+      assignedTo: existing.assignedTo,
+      resolutionNote: resolutionNote === undefined ? existing.resolutionNote : resolutionNote,
+    });
+    if (!transition.ok) return c.json({ error: transition.error }, 409);
+  }
+
   const patch: Record<string, unknown> = { updatedAt: sqlNow() };
   if (resolutionNote !== undefined) patch.resolutionNote = resolutionNote;
   if (status) {
@@ -591,15 +550,10 @@ incidentRoutes.patch("/:id/work", async (c) => {
     patch.resolvedAt = status === "resolved" ? sqlNow() : null;
   }
 
-  const updated = await db
-    .update(incidents)
-    .set(patch)
-    .where(eq(incidents.id, id))
-    .returning()
-    .get();
-
+  const events: Parameters<typeof writeEvent>[0][] = [];
+  const notices: Parameters<typeof writeNotifications>[0] = [];
   if (status && status !== existing.status) {
-    await logEvent({
+    events.push({
       incidentId: id,
       type: "status",
       message: `${worker.name} moved this to ${status.replace("_", " ")}`,
@@ -608,20 +562,17 @@ incidentRoutes.patch("/:id/work", async (c) => {
       fromValue: existing.status,
       toValue: status,
     });
-    await notifyAdmins(
-      {
-        type: status === "resolved" ? "resolved" : "info",
-        title:
-          status === "resolved"
-            ? `${worker.name} resolved an incident`
-            : `${worker.name} started work on an incident`,
-        body: existing.title,
-        link: `/incidents/${id}`,
-      },
-      Number(user.sub),
-    );
+    const admins = await db.select({ id: users.id }).from(users)
+      .where(and(eq(users.role, "admin"), eq(users.status, "active"))).all();
+    notices.push(...admins.filter((admin) => admin.id !== Number(user.sub)).map((admin) => ({
+      userId: admin.id,
+      type: status === "resolved" ? "resolved" : "info",
+      title: status === "resolved" ? `${worker.name} resolved an incident` : `${worker.name} started work on an incident`,
+      body: existing.title,
+      link: `/incidents/${id}`,
+    })));
   } else if (resolutionNote !== undefined) {
-    await logEvent({
+    events.push({
       incidentId: id,
       type: "note",
       message: `${worker.name} updated the work note`,
@@ -629,12 +580,17 @@ incidentRoutes.patch("/:id/work", async (c) => {
       actorName: user.name,
     });
   }
-
-  await logAudit(c, {
-    action: "work_update",
-    entity: "incident",
-    entityId: id,
-    detail: status ?? "note",
+  const updated = await db.transaction(async (tx) => {
+    const changed = await tx.update(incidents).set(patch).where(eq(incidents.id, id)).returning().get();
+    for (const event of events) await writeEvent(event, tx);
+    await writeNotifications(notices, tx);
+    await writeAudit(c, {
+      action: "work_update",
+      entity: "incident",
+      entityId: id,
+      detail: status ?? "note",
+    }, tx);
+    return changed;
   });
 
   return c.json({ incident: updated });
@@ -642,14 +598,15 @@ incidentRoutes.patch("/:id/work", async (c) => {
 
 incidentRoutes.delete("/:id", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
-  const row = await db.delete(incidents).where(eq(incidents.id, id)).returning().get();
-  if (!row) return c.json({ error: "Incident not found" }, 404);
-  await logAudit(c, {
-    action: "delete",
-    entity: "incident",
-    entityId: id,
-    detail: row.title,
+  const row = await db.transaction(async (tx) => {
+    const deleted = await tx.delete(incidents).where(eq(incidents.id, id)).returning().get();
+    if (!deleted) return null;
+    await writeAudit(c, {
+      action: "delete", entity: "incident", entityId: id, detail: deleted.title,
+    }, tx);
+    return deleted;
   });
+  if (!row) return c.json({ error: "Incident not found" }, 404);
   return c.json({ ok: true });
 });
 
