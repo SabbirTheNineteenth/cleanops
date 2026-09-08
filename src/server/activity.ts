@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLogs, incidentEvents, notifications, users } from "@/db/schema";
 import type { AppContext } from "./middleware";
+import { logBestEffortFailure } from "./logging";
 
 type WriteExecutor = Pick<typeof db, "insert">;
 
@@ -46,7 +47,11 @@ export async function logAudit(c: AppContext, entry: AuditEntry): Promise<void> 
   try {
     await writeAudit(c, entry);
   } catch (err) {
-    console.error("[audit] failed:", err);
+    logBestEffortFailure("audit.write", err, {
+      action: entry.action,
+      entity: entry.entity,
+      requestId: c.get("requestId"),
+    });
   }
 }
 
@@ -74,7 +79,7 @@ export async function notify(entries: NotifyEntry[]): Promise<void> {
   try {
     await writeNotifications(entries);
   } catch (err) {
-    console.error("[notify] failed:", err);
+    logBestEffortFailure("notification.write", err, { recipients: entries.length });
   }
 }
 
@@ -88,7 +93,7 @@ export async function notifyAdmins(
     await notify(admins.map((row) => row.id).filter((id) => id !== (exceptUserId ?? -1))
       .map((userId) => ({ ...entry, userId })));
   } catch (err) {
-    console.error("[notify-admins] failed:", err);
+    logBestEffortFailure("notification.admin_lookup", err, { recipients: 0 });
   }
 }
 
@@ -118,6 +123,6 @@ export async function logEvent(entry: EventEntry): Promise<void> {
   try {
     await writeEvent(entry);
   } catch (err) {
-    console.error("[event] failed:", err);
+    logBestEffortFailure("incident_event.write", err, { incidentId: entry.incidentId });
   }
 }

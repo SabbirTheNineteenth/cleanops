@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   resolution_note TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  version INTEGER NOT NULL DEFAULT 1,
   resolved_at TEXT
 );
 
@@ -212,6 +213,10 @@ CREATE INDEX IF NOT EXISTS idx_attempts_ip ON auth_attempts(ip, created_at);
   if (!hasCol("due_at")) {
     await db.execute(`ALTER TABLE incidents ADD COLUMN due_at TEXT`);
     console.log("Added incidents.due_at column");
+  }
+  if (!hasCol("version")) {
+    await db.execute(`ALTER TABLE incidents ADD COLUMN version INTEGER NOT NULL DEFAULT 1`);
+    console.log("Added incidents.version column");
   }
 
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_incidents_due ON incidents(due_at)`);

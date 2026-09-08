@@ -27,6 +27,10 @@ test("the sidebar exposes an accessible responsive mobile drawer", () => {
   assert.match(sidebar, /onClick=\{\(\) => setIsOpen\(false\)\}/);
 });
 
+test("CI provides a test-only JWT secret for the production build", () => {
+  const ci = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(ci, /env:\s*\n\s+JWT_SECRET: cleanops-ci-only-secret-at-least-32-characters/);
+});
 test("lint is deterministic and CI runs lint, typecheck, tests, and build", () => {
   const packageJson = read("package.json");
   const workflowPath = ".github/workflows/ci.yml";

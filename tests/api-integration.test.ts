@@ -133,6 +133,12 @@ after(async () => {
   }
 });
 
+test("every API response carries a request identifier", async () => {
+  const response = await request("/health");
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("x-request-id") ?? "", /\S/);
+});
+
 test("auth login establishes a database-backed session that /me and /sessions expose", async () => {
   const me = await request("/auth/me", {}, adminCookie);
   assert.equal(me.status, 200);
@@ -171,35 +177,45 @@ test("incident APIs enforce authentication and let only the assigned worker adva
     adminCookie,
   );
   assert.equal(created.status, 201);
-  const incidentId = (await created.json()).incident.id as number;
+  const createdIncident = (await created.json()).incident as { id: number; version: number };
+  const incidentId = createdIncident.id;
   await waitForTriage(incidentId);
 
   const assigned = await request(
     `/incidents/${incidentId}`,
-    { method: "PATCH", body: JSON.stringify({ assignedTo: workerId }) },
+    { method: "PATCH", body: JSON.stringify({ assignedTo: workerId, version: createdIncident.version }) },
     adminCookie,
   );
   assert.equal(assigned.status, 200);
-  assert.equal((await assigned.json()).incident.status, "assigned");
+  const assignedIncident = (await assigned.json()).incident as { status: string; version: number };
+  assert.equal(assignedIncident.status, "assigned");
 
   const outsiderWork = await request(
     `/incidents/${incidentId}/work`,
-    { method: "PATCH", body: JSON.stringify({ status: "in_progress" }) },
+    { method: "PATCH", body: JSON.stringify({ status: "in_progress", version: assignedIncident.version }) },
     outsiderCookie,
   );
   assert.equal(outsiderWork.status, 403);
 
   const inProgress = await request(
     `/incidents/${incidentId}/work`,
-    { method: "PATCH", body: JSON.stringify({ status: "in_progress" }) },
+    { method: "PATCH", body: JSON.stringify({ status: "in_progress", version: assignedIncident.version }) },
     workerCookie,
   );
   assert.equal(inProgress.status, 200);
-  assert.equal((await inProgress.json()).incident.status, "in_progress");
+  const inProgressIncident = (await inProgress.json()).incident as { status: string; version: number };
+  assert.equal(inProgressIncident.status, "in_progress");
 
   const resolved = await request(
     `/incidents/${incidentId}/work`,
-    { method: "PATCH", body: JSON.stringify({ status: "resolved", resolutionNote: "Leak isolated and area dried." }) },
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "resolved",
+        resolutionNote: "Leak isolated and area dried.",
+        version: inProgressIncident.version,
+      }),
+    },
     workerCookie,
   );
   assert.equal(resolved.status, 200);
@@ -208,6 +224,45 @@ test("incident APIs enforce authentication and let only the assigned worker adva
   const stored = await db.select().from(incidents).where(eq(incidents.id, incidentId)).get();
   assert.equal(stored?.status, "resolved");
   assert.equal(stored?.resolutionNote, "Leak isolated and area dried.");
+});
+
+test("incident updates reject stale versions without creating extra workflow side effects", async () => {
+  const created = await request(
+    "/incidents",
+    {
+      method: "POST",
+      body: JSON.stringify({ title: "Concurrent update test", siteId, severity: "medium" }),
+    },
+    adminCookie,
+  );
+  assert.equal(created.status, 201);
+  const incident = (await created.json()).incident as { id: number; version: number };
+  await waitForTriage(incident.id);
+
+  const first = await request(
+    `/incidents/${incident.id}`,
+    { method: "PATCH", body: JSON.stringify({ severity: "high", version: incident.version }) },
+    adminCookie,
+  );
+  assert.equal(first.status, 200);
+
+  const stale = await request(
+    `/incidents/${incident.id}`,
+    { method: "PATCH", body: JSON.stringify({ severity: "critical", version: incident.version }) },
+    adminCookie,
+  );
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).error, "Incident changed. Refresh and try again.");
+
+  const stored = await db.select().from(incidents).where(eq(incidents.id, incident.id)).get();
+  assert.equal(stored?.severity, "high");
+  assert.equal(stored?.version, incident.version + 1);
+  const severityEvents = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(incidentEvents)
+    .where(and(eq(incidentEvents.incidentId, incident.id), eq(incidentEvents.type, "severity")))
+    .get();
+  assert.equal(Number(severityEvents?.total), 1);
 });
 
 test("assignment API rejects a duplicate active assignment without creating another row", async () => {

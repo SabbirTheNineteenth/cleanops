@@ -10,6 +10,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: cleanops-ci-only-secret-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

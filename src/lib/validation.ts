@@ -77,6 +77,7 @@ export const incidentSchema = z.object({
 });
 
 export const incidentUpdateSchema = z.object({
+  version: z.number().int().positive(),
   status: z.enum(["open", "assigned", "in_progress", "resolved"]).optional(),
   severity: z.enum(["low", "medium", "high", "critical"]).optional(),
   assignedTo: z.number().int().positive().nullable().optional(),
@@ -85,6 +86,7 @@ export const incidentUpdateSchema = z.object({
 });
 
 export const incidentWorkSchema = z.object({
+  version: z.number().int().positive(),
   status: z.enum(["in_progress", "resolved"]).optional(),
   resolutionNote: z.string().max(2000).optional(),
 });

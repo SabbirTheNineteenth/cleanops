@@ -58,6 +58,7 @@ interface Incident {
   dueAt: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
   resolvedAt: string | null;
   sla: { label: string; tone: string; state: string };
 }
@@ -101,14 +102,15 @@ export default function IncidentDetailPage() {
     load();
     getJSON<{ data: Worker[] }>("/workers?pageSize=200")
       .then((d) => setWorkers(d.data ?? []))
-      .catch(() => undefined);
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load workers"));
   }, [id]);
 
   async function update(patch: Record<string, unknown>) {
     setBusy(true);
     setError("");
     try {
-      await patchJSON(`/incidents/${id}`, patch);
+      if (!incident) return;
+      await patchJSON(`/incidents/${id}`, { ...patch, version: incident.version });
       load();
       setPulse((value) => value + 1);
     } catch (err) {

@@ -107,6 +107,7 @@ export const incidents = sqliteTable("incidents", {
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(CURRENT_TIMESTAMP)`),
+  version: integer("version").notNull().default(1),
   resolvedAt: text("resolved_at"),
 });
 

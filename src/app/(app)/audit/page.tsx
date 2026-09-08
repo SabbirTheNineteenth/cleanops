@@ -46,6 +46,7 @@ const ACTION_TONES: Record<string, string> = {
 export default function AuditPage() {
   const { isAdmin, loading: sessionLoading } = useSession();
   const [meta, setMeta] = useState<AuditMeta | null>(null);
+  const [metaError, setMetaError] = useState("");
   const list = useList<AuditRow>("/audit", {
     pageSize: 25,
     sort: "createdAt",
@@ -57,7 +58,7 @@ export default function AuditPage() {
     if (!isAdmin) return;
     getJSON<AuditMeta>("/audit/meta")
       .then(setMeta)
-      .catch(() => undefined);
+      .catch((err) => setMetaError(err instanceof Error ? err.message : "Could not load audit filters"));
   }, [isAdmin]);
 
   if (sessionLoading) return <Skeleton className="h-40" />;
@@ -97,6 +98,7 @@ export default function AuditPage() {
         }
       />
 
+      {metaError && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{metaError}</p>}
       <Card className="overflow-hidden">
         <ListToolbar
           search={list.search}

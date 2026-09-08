@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { assertAuthConfiguration } from "@/lib/auth";
 import { authRoutes } from "./routes/auth";
@@ -12,10 +13,18 @@ import { reportRoutes } from "./routes/reports";
 import { statsRoutes } from "./routes/stats";
 import { userRoutes } from "./routes/users";
 import type { Variables } from "./middleware";
+import { logBestEffortFailure } from "./logging";
 
 assertAuthConfiguration();
 
 export const app = new Hono<{ Variables: Variables }>().basePath("/api");
+
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id")?.slice(0, 80) || randomUUID();
+  c.set("requestId", requestId);
+  c.header("x-request-id", requestId);
+  await next();
+});
 
 app.get("/health", (c) => c.json({ ok: true, service: "cleanops" }));
 
@@ -33,8 +42,9 @@ app.route("/users", userRoutes);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {
-  console.error("[api] error:", err);
-  return c.json({ error: "Internal server error" }, 500);
+  const requestId = c.get("requestId");
+  logBestEffortFailure("request.failed", err, { requestId, path: c.req.path });
+  return c.json({ error: "Internal server error", requestId }, 500);
 });
 
 export type AppType = typeof app;

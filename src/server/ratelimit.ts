@@ -2,6 +2,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { authAttempts } from "@/db/schema";
 import { minutesAgo } from "@/lib/time";
+import { logBestEffortFailure } from "./logging";
 
 export interface RateRule {
   max: number;
@@ -32,7 +33,7 @@ export async function recordAttempt(
       await db.delete(authAttempts).where(sql`created_at < ${minutesAgo(60 * 24)}`);
     }
   } catch (err) {
-    console.error("[ratelimit] record failed:", err);
+    logBestEffortFailure("rate_limit.record", err, { kind });
   }
 }
 
@@ -60,7 +61,7 @@ export async function attemptCount(
       .get();
     return Number(row?.total ?? 0);
   } catch (err) {
-    console.error("[ratelimit] count failed:", err);
+    logBestEffortFailure("rate_limit.count", err, { kind });
     return 0;
   }
 }

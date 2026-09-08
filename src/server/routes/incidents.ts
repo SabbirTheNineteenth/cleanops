@@ -86,6 +86,7 @@ function withJoins() {
       dueAt: incidents.dueAt,
       createdAt: incidents.createdAt,
       updatedAt: incidents.updatedAt,
+      version: incidents.version,
       resolvedAt: incidents.resolvedAt,
     })
     .from(incidents)
@@ -369,7 +370,7 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = incidentUpdateSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  const { status, severity, assignedTo, resolutionNote, dueAt } = parsed.data;
+  const { version, status, severity, assignedTo, resolutionNote, dueAt } = parsed.data;
   const nextAssignedTo = assignedTo === undefined ? existing.assignedTo : assignedTo;
   const nextResolutionNote = resolutionNote === undefined ? existing.resolutionNote : resolutionNote;
   const requestedStatus = requestedIncidentStatus(status, assignedTo, existing.status);
@@ -384,7 +385,10 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
     return c.json({ error: "Assigned or active incidents cannot be unassigned" }, 409);
   }
 
-  const patch: Record<string, unknown> = { updatedAt: sqlNow() };
+  const patch: Record<string, unknown> = {
+    updatedAt: sqlNow(),
+    version: sql`${incidents.version} + 1`,
+  };
   const events: Parameters<typeof writeEvent>[0][] = [];
   const notices: Parameters<typeof writeNotifications>[0] = [];
   let assignedUserId: number | null = null;
@@ -494,7 +498,9 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
   }
 
   const updated = await db.transaction(async (tx) => {
-    const changed = await tx.update(incidents).set(patch).where(eq(incidents.id, id)).returning().get();
+    const changed = await tx.update(incidents).set(patch)
+      .where(and(eq(incidents.id, id), eq(incidents.version, version))).returning().get();
+    if (!changed) return null;
     for (const event of events) await writeEvent(event, tx);
     await writeNotifications(notices, tx);
     await writeAudit(c, {
@@ -508,6 +514,7 @@ incidentRoutes.patch("/:id", requireAdmin, async (c) => {
     return changed;
   });
 
+  if (!updated) return c.json({ error: "Incident changed. Refresh and try again." }, 409);
   return c.json({ incident: updated });
 });
 
@@ -533,7 +540,7 @@ incidentRoutes.patch("/:id/work", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = incidentWorkSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  const { status, resolutionNote } = parsed.data;
+  const { version, status, resolutionNote } = parsed.data;
 
   if (status) {
     const transition = validateIncidentTransition(existing.status, status, {
@@ -543,7 +550,10 @@ incidentRoutes.patch("/:id/work", async (c) => {
     if (!transition.ok) return c.json({ error: transition.error }, 409);
   }
 
-  const patch: Record<string, unknown> = { updatedAt: sqlNow() };
+  const patch: Record<string, unknown> = {
+    updatedAt: sqlNow(),
+    version: sql`${incidents.version} + 1`,
+  };
   if (resolutionNote !== undefined) patch.resolutionNote = resolutionNote;
   if (status) {
     patch.status = status;
@@ -581,7 +591,9 @@ incidentRoutes.patch("/:id/work", async (c) => {
     });
   }
   const updated = await db.transaction(async (tx) => {
-    const changed = await tx.update(incidents).set(patch).where(eq(incidents.id, id)).returning().get();
+    const changed = await tx.update(incidents).set(patch)
+      .where(and(eq(incidents.id, id), eq(incidents.version, version))).returning().get();
+    if (!changed) return null;
     for (const event of events) await writeEvent(event, tx);
     await writeNotifications(notices, tx);
     await writeAudit(c, {
@@ -593,6 +605,7 @@ incidentRoutes.patch("/:id/work", async (c) => {
     return changed;
   });
 
+  if (!updated) return c.json({ error: "Incident changed. Refresh and try again." }, 409);
   return c.json({ incident: updated });
 });
 

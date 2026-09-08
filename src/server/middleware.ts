@@ -11,7 +11,7 @@ import {
 } from "@/lib/auth";
 import { sessionUsable, touchSession } from "./sessions";
 
-export type Variables = { user: SessionPayload };
+export type Variables = { user: SessionPayload; requestId: string };
 export type AppContext = Context<{ Variables: Variables }>;
 
 export async function requireAuth(c: AppContext, next: Next) {

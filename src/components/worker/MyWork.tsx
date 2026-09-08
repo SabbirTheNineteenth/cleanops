@@ -28,6 +28,7 @@ interface MyIncident {
   resolutionNote: string | null;
   dueAt: string | null;
   updatedAt: string;
+  version: number;
   sla: { label: string; tone: string; state: string };
 }
 
@@ -59,7 +60,11 @@ export function MyWork() {
     setSaving(true);
     setError("");
     try {
-      await patchJSON(`/incidents/${active.id}/work`, { status, resolutionNote: note });
+      await patchJSON(`/incidents/${active.id}/work`, {
+        status,
+        resolutionNote: note,
+        version: active.version,
+      });
       setActive(null);
       await load();
     } catch (err) {

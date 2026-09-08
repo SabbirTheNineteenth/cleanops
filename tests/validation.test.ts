@@ -142,13 +142,13 @@ test("a new incident only needs a title and a site and leaves severity for AI tr
   assert.equal(incidentSchema.safeParse({ title: "ab", siteId: 3 }).success, false);
 });
 
-test("incident updates accept a null assignee to unassign", () => {
-  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: null }).success, true);
-  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: 4 }).success, true);
-  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: 0 }).success, false);
-  assert.equal(incidentUpdateSchema.safeParse({ dueAt: null }).success, true);
-  assert.equal(incidentUpdateSchema.safeParse({ status: "archived" }).success, false);
-  assert.equal(incidentUpdateSchema.safeParse({}).success, true);
+test("incident updates require a version and accept a null assignee to unassign", () => {
+  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: null, version: 1 }).success, true);
+  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: 4, version: 1 }).success, true);
+  assert.equal(incidentUpdateSchema.safeParse({ assignedTo: 0, version: 1 }).success, false);
+  assert.equal(incidentUpdateSchema.safeParse({ dueAt: null, version: 1 }).success, true);
+  assert.equal(incidentUpdateSchema.safeParse({ status: "archived", version: 1 }).success, false);
+  assert.equal(incidentUpdateSchema.safeParse({}).success, false);
 });
 
 test("comments and tasks reject one character noise", () => {
