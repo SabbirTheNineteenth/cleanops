@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "hono",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/[...route]?route=$1"
+    }
+  ],
+  "functions": {
+    "api/[...route].ts": {
+      "includeFiles": "{dist/**,node_modules/@libsql/linux-x64-gnu/**}"
+    }
+  }
+}

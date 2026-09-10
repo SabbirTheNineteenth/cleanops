@@ -1,0 +1,106 @@
+import bcrypt from "bcryptjs";
+import { SignJWT, jwtVerify } from "jose";
+
+export const SESSION_COOKIE = "cleanops_session";
+export const MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+export type Role = "admin" | "user";
+
+export interface SessionPayload {
+  sub: string;
+  name: string;
+  email: string;
+  role: Role;
+  jti: string;
+}
+
+export function validateJwtSecret(secret: string | undefined): string {
+  const value = secret?.trim();
+  if (!value || value === "dev-insecure-secret-change-me" || value.startsWith("change-me-")) {
+    throw new Error("JWT_SECRET must be configured with a strong, unique value");
+  }
+  if (value.length < 32) {
+    throw new Error("JWT_SECRET must be at least 32 characters long");
+  }
+  return value;
+}
+
+export function assertAuthConfiguration(): void {
+  validateJwtSecret(process.env.JWT_SECRET);
+}
+
+function getSecret(): Uint8Array {
+  return new TextEncoder().encode(validateJwtSecret(process.env.JWT_SECRET));
+}
+
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 10);
+}
+
+export async function verifyPassword(
+  plain: string,
+  hash: string,
+): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
+}
+
+let timingHash: string | null = null;
+
+export async function equalizeTiming(plain: string): Promise<void> {
+  try {
+    if (!timingHash) timingHash = await bcrypt.hash("cleanops-timing-guard", 10);
+    await bcrypt.compare(plain || "x", timingHash);
+  } catch {
+    return;
+  }
+}
+
+export async function signToken(payload: SessionPayload): Promise<string> {
+  return new SignJWT({ ...payload })
+    .setProtectedHeader({ alg: "HS256" })
+    .setJti(payload.jti)
+    .setIssuedAt()
+    .setExpirationTime(`${MAX_AGE_SECONDS}s`)
+    .sign(getSecret());
+}
+
+export async function verifyToken(
+  token: string | undefined | null,
+): Promise<SessionPayload | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, getSecret());
+    return {
+      sub: String(payload.sub),
+      name: String(payload.name),
+      email: String(payload.email),
+      role: (payload.role as Role) ?? "user",
+      jti: String(payload.jti ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function sessionCookieOptions() {
+  const domain = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    ...(domain ? { domain } : {}),
+    maxAge: MAX_AGE_SECONDS,
+  };
+}
+
+export function clearCookieOptions() {
+  const domain = process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined;
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    ...(domain ? { domain } : {}),
+  };
+}

@@ -8,16 +8,40 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  client:
+    name: Client quality gates
     runs-on: ubuntu-latest
-    env:
-      JWT_SECRET: cleanops-ci-only-secret-at-least-32-characters
+    defaults:
+      run:
+        working-directory: client
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  server:
+    name: Server quality gates
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: cleanops-ci-only-secret-at-least-32-characters
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

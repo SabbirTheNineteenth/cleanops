@@ -1,0 +1,39 @@
+{
+  "name": "cleanops-server",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && node scripts/write-cjs-package.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@libsql/client": "0.14.0",
+    "bcryptjs": "2.4.3",
+    "dotenv": "16.4.7",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.7",
+    "jose": "5.9.6",
+    "zod": "3.24.1"
+  },
+  "optionalDependencies": {
+    "@libsql/linux-x64-gnu": "^0.4.7"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "2.4.6",
+    "@types/node": "22.10.7",
+    "drizzle-kit": "0.30.2",
+    "eslint": "^9.39.5",
+    "tsc-alias": "^1.8.16",
+    "tsx": "4.19.2",
+    "typescript": "5.7.3"
+  }
+}

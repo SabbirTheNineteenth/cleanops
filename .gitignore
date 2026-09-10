@@ -1,5 +1,6 @@
 node_modules
 .next
+dist
 out
 build
 *.db
@@ -8,11 +9,10 @@ build
 *.db-shm
 .env
 .env.local
+.env*.local
 .DS_Store
 npm-debug.log*
 .vercel
 
 # TypeScript build info
 tsconfig.tsbuildinfo
-
-.vercel
