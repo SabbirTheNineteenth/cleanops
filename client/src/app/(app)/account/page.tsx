@@ -44,6 +44,8 @@ export default function AccountPage() {
   const [passwordMsg, setPasswordMsg] = useState("");
   const [passwordErr, setPasswordErr] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   const [sessions, setSessions] = useState<DeviceSession[] | null>(null);
   const [sessionErr, setSessionErr] = useState("");
@@ -236,24 +238,26 @@ export default function AccountPage() {
             <div>
               <Label>Current password</Label>
               <Input
-                type="password"
+                type={showCurrentPassword ? "text" : "password"}
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 autoComplete="current-password"
                 required
                 disabled={savingPassword}
               />
+              <button type="button" onClick={() => setShowCurrentPassword((value) => !value)} className="mt-1 text-xs text-brand-700">{showCurrentPassword ? "Hide password" : "Show password"}</button>
             </div>
             <div>
               <Label>New password</Label>
               <Input
-                type="password"
+                type={showNewPassword ? "text" : "password"}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 autoComplete="new-password"
                 required
                 disabled={savingPassword}
               />
+              <button type="button" onClick={() => setShowNewPassword((value) => !value)} className="mt-1 text-xs text-brand-700">{showNewPassword ? "Hide password" : "Show password"}</button>
               <PasswordHints value={newPassword} />
             </div>
             {passwordErr && <p className="text-sm font-medium text-red-600">{passwordErr}</p>}

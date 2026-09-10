@@ -19,7 +19,7 @@ import {
   EmptyState,
   SEVERITY_HEX,
 } from "@/components/ui";
-import { FilterSelect, ListContext, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
+import { FilterSelect, ListContext, ListLoadingSkeleton, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
 import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
 import { AIEditor } from "@/components/ai/AIEditor";
@@ -101,6 +101,16 @@ function IncidentsInner() {
       siteId: searchParams.get("siteId") ?? "",
     },
   });
+  const { setFiltersFromUrl } = list;
+
+  useEffect(() => {
+    setFiltersFromUrl({
+      status: searchParams.get("status") ?? "",
+      severity: searchParams.get("severity") ?? "",
+      sla: searchParams.get("sla") ?? "",
+      siteId: searchParams.get("siteId") ?? "",
+    });
+  }, [setFiltersFromUrl, searchParams]);
 
   useEffect(() => {
     getJSON<{ sites: Option[]; categories: string[] }>("/incidents/meta")
@@ -251,6 +261,7 @@ function IncidentsInner() {
             </tr>
           ))}
         </TableShell>
+        {list.loading && list.rows.length === 0 && <ListLoadingSkeleton rows={6} />}
         {list.rows.length === 0 && !list.loading && (
           <EmptyState
             icon={<ClipboardList size={20} />}
@@ -273,7 +284,7 @@ function IncidentsInner() {
             }
           />
         )}
-        {list.error && <p className="px-4 py-3 text-sm text-red-600">{list.error}</p>}
+        {list.error && <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-red-600"><p>{list.error}</p><Button variant="secondary" className="text-xs" onClick={list.refresh}>Retry</Button></div>}
         <Pagination meta={list.meta} onPage={list.setPage} loading={list.loading} />
       </Card>
       <Modal open={open} onClose={closeModal} title="Report incident">

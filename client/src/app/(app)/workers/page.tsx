@@ -6,7 +6,7 @@ import { getJSON, postJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 import { useList } from "@/lib/useList";
 import { Button, Card, Input, Label, Badge, EmptyState, Tone } from "@/components/ui";
-import { FilterSelect, ListContext, ListToolbar, Pagination, SortSelect } from "@/components/list";
+import { FilterSelect, ListContext, ListLoadingSkeleton, ListToolbar, Pagination, SortSelect } from "@/components/list";
 import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
 import { AssignWorkerModal } from "@/components/admin/AssignWorkerModal";
@@ -296,6 +296,7 @@ export default function WorkersPage() {
             );
           })}
         </div>
+        {list.loading && list.rows.length === 0 && <ListLoadingSkeleton variant="cards" rows={4} />}
         {list.rows.length === 0 && !list.loading && (
           <EmptyState
             icon={<Users size={20} />}

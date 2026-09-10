@@ -12,7 +12,7 @@ import {
 import { commentSchema, taskSchema, taskUpdateSchema } from "@/lib/validation";
 import { sqlNow } from "@/lib/time";
 import { logAudit, logEvent, notify, notifyAdmins } from "../activity";
-import { RATE_RULES, overLimit, recordAttempt, retryAfterMessage } from "../ratelimit";
+import { RATE_RULES, consumeRateLimit, retryAfterMessage } from "../ratelimit";
 import { clampListQuery, listMeta, parseListQuery } from "../query";
 import { requireAuth, type AppContext, type Variables } from "../middleware";
 
@@ -131,13 +131,12 @@ collabRoutes.post("/:id/comments", async (c) => {
   if (!incident) return c.json({ error: "Incident not found" }, 404);
   if (!isOwner(incident, actor)) return c.json({ error: NOT_INVOLVED }, 403);
 
-  if (await overLimit("comment", RATE_RULES.comment, { subject: `user:${actor.id}` })) {
-    return c.json({ error: retryAfterMessage(RATE_RULES.comment) }, 429);
-  }
-
   const body = await c.req.json().catch(() => ({}));
   const parsed = commentSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!(await consumeRateLimit("comment", RATE_RULES.comment, { subject: `user:${actor.id}` }))) {
+    return c.json({ error: retryAfterMessage(RATE_RULES.comment) }, 429);
+  }
 
   const row = await db
     .insert(incidentComments)
@@ -150,7 +149,6 @@ collabRoutes.post("/:id/comments", async (c) => {
     .returning()
     .get();
 
-  await recordAttempt("comment", { subject: `user:${actor.id}`, success: true });
   await logEvent({
     incidentId: id,
     type: "comment",

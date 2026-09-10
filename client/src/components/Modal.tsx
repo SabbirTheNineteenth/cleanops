@@ -64,7 +64,7 @@ export function Modal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div
         ref={dialogRef}
         role="dialog"
@@ -73,7 +73,6 @@ export function Modal({
         tabIndex={-1}
         className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
         onKeyDown={trapFocus}
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 id={titleId} className="text-lg font-semibold text-ink-900">{title}</h3>

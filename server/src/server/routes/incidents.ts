@@ -12,7 +12,7 @@ import { computeDueAt, slaInfo } from "@/lib/sla";
 import { parseTime, sqlNow } from "@/lib/time";
 import { enhanceIncidentText } from "../ai";
 import { logAudit, writeAudit, writeEvent, writeNotifications } from "../activity";
-import { RATE_RULES, aiBlocked, recordAttempt, retryAfterMessage } from "../ratelimit";
+import { RATE_RULES, consumeRateLimit, retryAfterMessage } from "../ratelimit";
 import {
   clampListQuery,
   listMeta,
@@ -173,6 +173,19 @@ function buildConditions(query: Record<string, string>, search: string) {
   return conditions;
 }
 
+async function readAccessCondition(user: { sub: string; role: string }) {
+  if (user.role === "admin") return undefined;
+  const userId = Number(user.sub);
+  const worker = await db
+    .select({ id: workers.id })
+    .from(workers)
+    .where(eq(workers.userId, userId))
+    .get();
+  return worker
+    ? or(eq(incidents.reportedBy, userId), eq(incidents.assignedTo, worker.id))
+    : eq(incidents.reportedBy, userId);
+}
+
 async function countIncidents(conditions: ReturnType<typeof buildConditions>) {
   const row = await db
     .select({ total: sql<number>`count(*)` })
@@ -185,9 +198,12 @@ async function countIncidents(conditions: ReturnType<typeof buildConditions>) {
 }
 
 incidentRoutes.get("/", async (c) => {
+  const user = c.get("user");
   const query = parseListQuery(c, { sortable: SORTABLE, defaultSort: "createdAt" });
   const raw = c.req.query();
   const conditions = buildConditions(raw, query.q);
+  const access = await readAccessCondition(user);
+  if (access) conditions.push(access);
   const where = conditions.length ? and(...conditions) : undefined;
   const column = (SORT_COLUMNS[query.sort] ?? incidents.createdAt) as never;
 
@@ -276,15 +292,13 @@ incidentRoutes.get("/meta", async (c) => {
 
 incidentRoutes.post("/enhance", async (c) => {
   const user = c.get("user");
-  if (await aiBlocked(user.sub)) {
-    return c.json({ error: retryAfterMessage(RATE_RULES.ai) }, 429);
-  }
-
   const body = await c.req.json().catch(() => ({}));
   const parsed = enhanceTextSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!(await consumeRateLimit("ai", RATE_RULES.ai, { subject: `user:${user.sub}` }))) {
+    return c.json({ error: retryAfterMessage(RATE_RULES.ai) }, 429);
+  }
 
-  await recordAttempt("ai", { subject: `user:${user.sub}`, success: true });
   const result = await enhanceIncidentText(parsed.data);
   return c.json(result);
 });
@@ -294,6 +308,12 @@ incidentRoutes.get("/:id", async (c) => {
   if (!Number.isFinite(id)) return c.json({ error: "Incident not found" }, 404);
   const row = await withJoins().where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
+  const user = c.get("user");
+  if (user.role !== "admin" && row.reportedBy !== Number(user.sub)) {
+    const worker = await db.select({ id: workers.id }).from(workers)
+      .where(eq(workers.userId, Number(user.sub))).get();
+    if (!worker || row.assignedTo !== worker.id) return c.json({ error: "Forbidden" }, 403);
+  }
   return c.json({ incident: decorate(row) });
 });
 
@@ -331,22 +351,20 @@ incidentRoutes.post("/", async (c) => {
       body: title,
       link: `/incidents/${created.id}`,
     })), tx);
+    await enqueueIncidentTriage(created.id, tx);
     return created;
   });
-  enqueueIncidentTriage(row.id);
   return c.json({ incident: row, ai: null, triageStatus: "pending" }, 201);
 });
 
 incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
   const user = c.get("user");
-  if (await aiBlocked(user.sub)) {
-    return c.json({ error: retryAfterMessage(RATE_RULES.ai) }, 429);
-  }
-
   const id = Number(c.req.param("id"));
   const row = await db.select().from(incidents).where(eq(incidents.id, id)).get();
   if (!row) return c.json({ error: "Incident not found" }, 404);
-  await recordAttempt("ai", { subject: `user:${user.sub}`, success: true });
+  if (!(await consumeRateLimit("ai", RATE_RULES.ai, { subject: `user:${user.sub}` }))) {
+    return c.json({ error: retryAfterMessage(RATE_RULES.ai) }, 429);
+  }
   const updated = await db.transaction(async (tx) => {
     const pending = await tx.update(incidents).set({ aiStatus: "pending", updatedAt: sqlNow() })
       .where(eq(incidents.id, id)).returning().get();
@@ -355,9 +373,9 @@ incidentRoutes.post("/:id/analyze", requireAdmin, async (c) => {
       actorId: Number(user.sub), actorName: user.name,
     }, tx);
     await writeAudit(c, { action: "analyze", entity: "incident", entityId: id, detail: "queued" }, tx);
+    await enqueueIncidentTriage(id, tx);
     return pending;
   });
-  enqueueIncidentTriage(id);
   return c.json({ incident: updated, ai: null, triageStatus: "pending" }, 202);
 });
 

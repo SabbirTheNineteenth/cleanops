@@ -22,9 +22,9 @@ import {
 import { clientAgent, clientIp, logAudit, notify, notifyAdmins } from "../activity";
 import {
   RATE_RULES,
-  loginBlocked,
-  recordAttempt,
-  registerBlocked,
+  consumeRateLimit,
+  loginFailureAdmissionAllowed,
+  recordLoginFailure,
   retryAfterMessage,
 } from "../ratelimit";
 import {
@@ -43,9 +43,6 @@ const GENERIC_REGISTER_MESSAGE =
 
 authRoutes.post("/register", async (c) => {
   const ip = clientIp(c);
-  if (await registerBlocked(ip)) {
-    return c.json({ error: retryAfterMessage(RATE_RULES.register) }, 429);
-  }
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = registerSchema.safeParse(body);
@@ -54,8 +51,9 @@ authRoutes.post("/register", async (c) => {
   }
   const { name, password } = parsed.data;
   const email = parsed.data.email.toLowerCase();
-
-  await recordAttempt("register", { subject: email, ip, success: true });
+  if (!(await consumeRateLimit("register", RATE_RULES.register, { ip }))) {
+    return c.json({ error: retryAfterMessage(RATE_RULES.register) }, 429);
+  }
 
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).get();
   if (existing) {
@@ -94,19 +92,14 @@ authRoutes.post("/login", async (c) => {
   const parsed = loginSchema.safeParse(body);
   const email = String((body as { email?: string }).email ?? "").toLowerCase().slice(0, 160);
 
-  if (await loginBlocked(email, ip)) {
-    await logAudit(c, {
-      action: "login_locked",
-      entity: "auth",
-      detail: email || "unknown",
-      actorId: null,
-      actorEmail: email || "unknown",
-    });
+  if (!(await loginFailureAdmissionAllowed(email, ip))) {
     return c.json({ error: retryAfterMessage(RATE_RULES.loginEmail) }, 429);
   }
 
   if (!parsed.success) {
-    await recordAttempt("login", { subject: email, ip, success: false });
+    if (!(await recordLoginFailure(email, ip))) {
+      return c.json({ error: retryAfterMessage(RATE_RULES.loginEmail) }, 429);
+    }
     return c.json({ error: "Invalid email or password" }, 401);
   }
   const { password } = parsed.data;
@@ -114,11 +107,15 @@ authRoutes.post("/login", async (c) => {
   const user = await db.select().from(users).where(eq(users.email, email)).get();
   if (!user) {
     await equalizeTiming(password);
-    await recordAttempt("login", { subject: email, ip, success: false });
+    if (!(await recordLoginFailure(email, ip))) {
+      return c.json({ error: retryAfterMessage(RATE_RULES.loginEmail) }, 429);
+    }
     return c.json({ error: "Invalid email or password" }, 401);
   }
   if (!(await verifyPassword(password, user.passwordHash))) {
-    await recordAttempt("login", { subject: email, ip, success: false });
+    if (!(await recordLoginFailure(email, ip))) {
+      return c.json({ error: retryAfterMessage(RATE_RULES.loginEmail) }, 429);
+    }
     await logAudit(c, {
       action: "login_failed",
       entity: "user",
@@ -130,14 +127,12 @@ authRoutes.post("/login", async (c) => {
     return c.json({ error: "Invalid email or password" }, 401);
   }
   if (user.status === "banned") {
-    await recordAttempt("login", { subject: email, ip, success: true });
     return c.json(
       { error: "Your account has been suspended. Contact an administrator." },
       403,
     );
   }
   if (user.status === "pending") {
-    await recordAttempt("login", { subject: email, ip, success: true });
     return c.json(
       {
         error: "Your account is awaiting admin approval. Please check back soon.",
@@ -156,7 +151,6 @@ authRoutes.post("/login", async (c) => {
     jti: sessionId,
   });
   setCookie(c, SESSION_COOKIE, token, sessionCookieOptions());
-  await recordAttempt("login", { subject: email, ip, success: true });
   await logAudit(c, {
     action: "login",
     entity: "user",
@@ -272,7 +266,9 @@ authRoutes.post("/password", requireAuth, async (c) => {
   if (!account) return c.json({ error: "Unauthorized" }, 401);
 
   if (!(await verifyPassword(parsed.data.currentPassword, account.passwordHash))) {
-    await recordAttempt("login", { subject: session.email, ip: clientIp(c), success: false });
+    if (!(await recordLoginFailure(session.email, clientIp(c)))) {
+      return c.json({ error: retryAfterMessage(RATE_RULES.loginEmail) }, 429);
+    }
     return c.json({ error: "Your current password is incorrect" }, 400);
   }
   if (parsed.data.currentPassword === parsed.data.newPassword) {

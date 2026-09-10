@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Button, Input, Select } from "./ui";
+import { Button, Input, Select, Skeleton } from "./ui";
 import type { ListMeta } from "@/lib/useList";
 
 type FilterOption = { value: string; label: string };
@@ -16,11 +18,49 @@ function FilterMenu({
   activeFilters?: number;
   onReset?: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverId = useId();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  function handleReset() {
+    onReset?.();
+    setOpen(false);
+  }
+
   return (
-    <details className="group relative z-20">
-      <summary
+    <div ref={containerRef} className="relative z-20">
+      <button
+        ref={triggerRef}
+        type="button"
         aria-label="Open filters"
-        className="inline-flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm transition hover:border-brand-200 hover:bg-brand-50/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 [&::-webkit-details-marker]:hidden"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 text-sm font-semibold text-ink-700 shadow-sm transition hover:border-brand-200 hover:bg-brand-50/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
       >
         <SlidersHorizontal size={15} className="text-brand-600" />
         Filters
@@ -29,31 +69,33 @@ function FilterMenu({
             {activeFilters}
           </span>
         )}
-        <ChevronDown size={14} className="text-ink-400 transition group-open:rotate-180" />
-      </summary>
-      <div className="filter-popover absolute right-0 top-[calc(100%+0.5rem)] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-ink-200 bg-white p-3 shadow-[0_18px_48px_-18px_rgba(15,23,42,0.32)]">
-        <div className="mb-3 flex items-center justify-between border-b border-ink-100 pb-2.5">
-          <div>
-            <p className="text-sm font-semibold text-ink-800">Refine results</p>
-            <p className="mt-0.5 text-xs text-ink-500">
-              {activeFilters > 0 ? `${activeFilters} filter${activeFilters === 1 ? "" : "s"} applied` : "No filters applied"}
-            </p>
+        <ChevronDown size={14} className={cn("text-ink-400 transition", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div id={popoverId} className="filter-popover absolute right-0 top-[calc(100%+0.5rem)] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-ink-200 bg-white p-3 shadow-[0_18px_48px_-18px_rgba(15,23,42,0.32)]">
+          <div className="mb-3 flex items-center justify-between border-b border-ink-100 pb-2.5">
+            <div>
+              <p className="text-sm font-semibold text-ink-800">Refine results</p>
+              <p className="mt-0.5 text-xs text-ink-500">
+                {activeFilters > 0 ? `${activeFilters} filter${activeFilters === 1 ? "" : "s"} applied` : "No filters applied"}
+              </p>
+            </div>
+            {activeFilters > 0 && onReset ? (
+              <button
+                type="button"
+                onClick={handleReset}
+                className="rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
+              >
+                Clear all filters
+              </button>
+            ) : (
+              <SlidersHorizontal size={16} className="text-brand-500" aria-hidden="true" />
+            )}
           </div>
-          {activeFilters > 0 && onReset ? (
-            <button
-              type="button"
-              onClick={onReset}
-              className="rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
-            >
-              Clear all filters
-            </button>
-          ) : (
-            <SlidersHorizontal size={16} className="text-brand-500" aria-hidden="true" />
-          )}
+          <div className="grid gap-3 sm:grid-cols-2">{children}</div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">{children}</div>
-      </div>
-    </details>
+      )}
+    </div>
   );
 }
 
@@ -248,6 +290,40 @@ export function TableShell({ head, children }: { head: React.ReactNode; children
           <tbody className="divide-y divide-ink-100">{children}</tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+export function ListLoadingSkeleton({
+  variant = "table",
+  rows = 5,
+}: {
+  variant?: "table" | "cards";
+  rows?: number;
+}) {
+  if (variant === "cards") {
+    return (
+      <div className="grid gap-4 p-4 md:grid-cols-2" aria-label="Loading results" aria-busy="true">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div key={index} className="space-y-4 rounded-xl border border-ink-200/70 bg-white p-5">
+            <div className="flex items-start gap-3"><Skeleton className="h-10 w-10 rounded-full" /><div className="flex-1 space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-1/2" /></div></div>
+            <div className="grid grid-cols-3 gap-2 border-t border-ink-100 pt-3">{Array.from({ length: 3 }).map((_, metric) => <Skeleton key={metric} className="h-9" />)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 p-4" aria-label="Loading results" aria-busy="true">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="grid grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(5rem,1fr))] gap-4 rounded-lg px-2 py-2">
+          <Skeleton className="h-5" />
+          <Skeleton className="h-5" />
+          <Skeleton className="h-5" />
+          <Skeleton className="h-5" />
+        </div>
+      ))}
     </div>
   );
 }

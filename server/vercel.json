@@ -9,7 +9,7 @@
   ],
   "functions": {
     "api/[...route].ts": {
-      "includeFiles": "{dist/**,node_modules/@libsql/linux-x64-gnu/**}"
+      "includeFiles": "{dist/**,node_modules/libsql/node_modules/@libsql/linux-x64-gnu/**}"
     }
   }
 }

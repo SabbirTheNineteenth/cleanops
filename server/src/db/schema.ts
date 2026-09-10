@@ -223,6 +223,32 @@ export const authAttempts = sqliteTable("auth_attempts", {
     .default(sql`(CURRENT_TIMESTAMP)`),
 });
 
+export const triageOutbox = sqliteTable("triage_outbox", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  incidentId: integer("incident_id").notNull().references(() => incidents.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["pending", "processing", "completed", "failed"] }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  availableAt: text("available_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  claimedAt: text("claimed_at"),
+  completedAt: text("completed_at"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const migrationLedger = sqliteTable("schema_migrations", {
+  version: text("version").primaryKey(),
+  checksum: text("checksum").notNull(),
+  appliedAt: text("applied_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export const rateLimitBuckets = sqliteTable("rate_limit_buckets", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  windowEndsAt: text("window_ends_at").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Site = typeof sites.$inferSelect;

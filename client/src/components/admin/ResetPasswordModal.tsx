@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { KeyRound, ShieldAlert, Sparkles } from "lucide-react";
+import { Copy, Eye, EyeOff, KeyRound, ShieldAlert, Sparkles } from "lucide-react";
 import { postJSON } from "@/lib/api";
 import { Button, Input, Label } from "@/components/ui";
 import { Modal } from "@/components/Modal";
@@ -45,10 +45,14 @@ export function ResetPasswordModal({
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  async function copyPassword() { await navigator.clipboard.writeText(password); }
 
   useEffect(() => {
     if (target) {
       setPassword("");
+      setShowPassword(false);
       setError("");
     }
   }, [target]);
@@ -90,9 +94,11 @@ export function ResetPasswordModal({
             >
               <Sparkles size={12} /> Generate
             </button>
+            <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)} className="mb-1.5 text-brand-700">{showPassword ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+            <button type="button" aria-label="Copy password" disabled={!password} onClick={copyPassword} className="mb-1.5 text-brand-700"><Copy size={14} /></button>
           </div>
           <Input
-            type="text"
+            type={showPassword ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Type or generate a password"

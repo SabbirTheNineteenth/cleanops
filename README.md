@@ -122,6 +122,25 @@ WEB_ORIGIN=https://<client-project>.vercel.app
 WEB_ORIGINS=https://<client-project>.vercel.app
 ```
 
-Use an exact origin allowlist; never use `*` with credentialed requests. Keep database tokens, JWT secrets, and provider keys exclusively in the server deployment. For the separate Vercel-domain proxy topology, leave `SESSION_COOKIE_DOMAIN` unset so the client host owns the host-only session cookie.
+Use an exact origin allowlist; never use `*` with credentialed requests. Keep database tokens, JWT secrets, cron secrets, and provider keys exclusively in the server deployment. For the separate Vercel-domain proxy topology, leave `SESSION_COOKIE_DOMAIN` unset so the client host owns the host-only session cookie.
 
-Run `npm run db:migrate` only from `server/` with the intended remote database credentials. It is idempotent. `npm run db:seed` is deliberately restricted to local SQLite (`file:` or `:memory:`) targets and cannot seed a remote database.
+### Manual production release
+
+Deploy the server first, then the client:
+
+```bash
+cd server
+npm run db:migrate
+npx vercel --prod
+
+cd ../client
+npx vercel --prod
+```
+
+Run `db:migrate` only with the intended remote database credentials. The migration ledger is idempotent and fails closed if an already-applied migration changes. Never run `db:seed` in production.
+
+### Background work on Vercel Hobby
+
+Vercel Hobby cannot run the five-minute background schedule. The app deploys normally, but automatic triage and session cleanup do not run. If you later add a trusted external scheduler, set `CRON_SECRET` and `SESSION_RETENTION_BATCH=100` in the server project; never call `GET /api/internal/triage` from the browser.
+
+`npm run db:seed` is deliberately restricted to local SQLite (`file:` or `:memory:`) targets and cannot seed a remote database.

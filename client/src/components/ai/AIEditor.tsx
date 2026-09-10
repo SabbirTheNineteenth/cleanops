@@ -152,6 +152,8 @@ export function AIEditor({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="ai-editor-panel"
         className={clsx(
           "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition",
           open
@@ -164,7 +166,7 @@ export function AIEditor({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-[21rem] max-w-[calc(100vw-3rem)] animate-fade-up rounded-2xl border border-white/10 bg-rail-900 p-3 shadow-pop">
+        <div id="ai-editor-panel" className="absolute right-0 top-full z-40 mt-2 w-[21rem] max-w-[calc(100vw-3rem)] animate-fade-up rounded-2xl border border-white/10 bg-rail-900 p-3 shadow-pop">
           <div className="mb-3 flex items-center justify-between pl-1">
             <h4 className="font-display text-base font-semibold text-white">
               AI Editor
@@ -179,6 +181,7 @@ export function AIEditor({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
+                aria-label="Close AI editor"
                 className="rounded-md p-1 text-ink-500 transition hover:bg-white/10 hover:text-white"
               >
                 <X size={16} />
@@ -186,11 +189,13 @@ export function AIEditor({
             </div>
           </div>
 
-          <div className="flex items-center gap-1 rounded-full bg-rail-950/80 p-1">
+          <div role="tablist" aria-label="AI editor mode" className="flex items-center gap-1 rounded-full bg-rail-950/80 p-1">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"
+                role="tab"
+                aria-selected={mode === t.id}
                 onClick={() => {
                   setMode(t.id);
                   setNote(null);

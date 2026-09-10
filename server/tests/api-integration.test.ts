@@ -13,6 +13,7 @@ Reflect.set(process.env, "NODE_ENV", "test");
 process.env.JWT_SECRET = "integration-test-secret-that-is-longer-than-32-characters";
 process.env.DATABASE_URL = `file:${databasePath.replace(/\\/g, "/")}`;
 process.env.OPENROUTER_API_KEY = "";
+process.env.CRON_SECRET = "integration-cron-secret";
 
 type App = typeof import("../src/server/app").app;
 type Database = typeof import("../src/db").db;
@@ -31,6 +32,7 @@ let incidentEvents: Schema["incidentEvents"];
 let incidents: Schema["incidents"];
 let sessions: Schema["sessions"];
 let sites: Schema["sites"];
+let triageOutbox: Schema["triageOutbox"];
 let users: Schema["users"];
 let workers: Schema["workers"];
 const password = "IntegrationPass1";
@@ -56,9 +58,12 @@ function cookieFrom(response: Response): string {
 
 async function waitForTriage(incidentId: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
+    const trigger = await request("/internal/triage", {
+      headers: { authorization: "Bearer integration-cron-secret" },
+    });
+    assert.equal(trigger.status, 200);
     const incident = await db.select().from(incidents).where(eq(incidents.id, incidentId)).get();
     if (incident?.aiStatus === "completed" || incident?.aiStatus === "failed") return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error("incident triage did not settle before the integration test timeout");
 }
@@ -90,7 +95,7 @@ before(async () => {
   client = dbModule.client;
   schema = schemaModule;
   hashPassword = authModule.hashPassword;
-  ({ assignments, auditLogs, incidentEvents, incidents, sessions, sites, users, workers } = schema);
+  ({ assignments, auditLogs, incidentEvents, incidents, sessions, sites, triageOutbox, users, workers } = schema);
 
   const passwordHash = await hashPassword(password);
   const admin = await db
@@ -139,6 +144,11 @@ test("every API response carries a request identifier", async () => {
   assert.match(response.headers.get("x-request-id") ?? "", /\S/);
 });
 
+test("triage worker endpoint fails closed without its internal credential", async () => {
+  const response = await request("/internal/triage");
+  assert.equal(response.status, 404);
+});
+
 test("auth login establishes a database-backed session that /me and /sessions expose", async () => {
   const me = await request("/auth/me", {}, adminCookie);
   assert.equal(me.status, 200);
@@ -153,6 +163,45 @@ test("auth login establishes a database-backed session that /me and /sessions ex
 
   const sessionCount = await db.select({ total: sql<number>`count(*)` }).from(sessions).get();
   assert.equal(Number(sessionCount?.total), 3);
+});
+
+test("protected cron prunes only the configured bounded session retention batch", async () => {
+  const expiredIds = ["expired-session-one", "expired-session-two"];
+  await db.insert(sessions).values(expiredIds.map((id) => ({
+    id,
+    userId: 1,
+    ip: "test",
+    userAgent: "test",
+    expiresAt: "2000-01-01 00:00:00",
+  })));
+  process.env.SESSION_RETENTION_BATCH = "1";
+  try {
+    const response = await request("/internal/triage", {
+      headers: { authorization: "Bearer integration-cron-secret" },
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).pruned, 1);
+    const remaining = await db.select({ id: sessions.id }).from(sessions).all();
+    assert.equal(remaining.filter((session) => expiredIds.includes(session.id)).length, 1);
+  } finally {
+    delete process.env.SESSION_RETENTION_BATCH;
+    await db.delete(sessions).where(sql`${sessions.id} in (${sql.join(expiredIds.map((id) => sql`${id}`), sql`, `)})`);
+  }
+});
+
+test("incident creation and re-analysis persist triage work before their transactions commit", async () => {
+  const created = await request(
+    "/incidents",
+    { method: "POST", body: JSON.stringify({ title: "Transactional triage incident", siteId, severity: "medium" }) },
+    adminCookie,
+  );
+  assert.equal(created.status, 201);
+  const incident = (await created.json()).incident as { id: number };
+  assert.equal((await db.select().from(triageOutbox).where(eq(triageOutbox.incidentId, incident.id)).all()).length, 1);
+
+  const analyzed = await request(`/incidents/${incident.id}/analyze`, { method: "POST" }, adminCookie);
+  assert.equal(analyzed.status, 202);
+  assert.equal((await db.select().from(triageOutbox).where(eq(triageOutbox.incidentId, incident.id)).all()).length, 2);
 });
 
 test("incident collaboration reads reject an unrelated authenticated user", async () => {
@@ -171,6 +220,41 @@ test("incident collaboration reads reject an unrelated authenticated user", asyn
     const response = await request(`/incidents/${incidentId}/${resource}`, {}, outsiderCookie);
     assert.equal(response.status, 403, `${resource} must remain private to incident participants`);
   }
+});
+
+test("incident list and detail expose only reported or assigned incidents to non-admins", async () => {
+  const visible = await request(
+    "/incidents",
+    { method: "POST", body: JSON.stringify({ title: "Worker-visible incident", siteId, severity: "medium" }) },
+    adminCookie,
+  );
+  assert.equal(visible.status, 201);
+  const visibleIncident = (await visible.json()).incident as { id: number; version: number };
+  const assignment = await request(
+    `/incidents/${visibleIncident.id}`,
+    { method: "PATCH", body: JSON.stringify({ assignedTo: workerId, version: visibleIncident.version }) },
+    adminCookie,
+  );
+  assert.equal(assignment.status, 200);
+
+  const hidden = await request(
+    "/incidents",
+    { method: "POST", body: JSON.stringify({ title: "Outsider-hidden incident", siteId, severity: "medium" }) },
+    adminCookie,
+  );
+  assert.equal(hidden.status, 201);
+  const hiddenId = (await hidden.json()).incident.id as number;
+
+  const workerList = await request("/incidents", {}, workerCookie);
+  assert.equal(workerList.status, 200);
+  assert.ok((await workerList.json()).data.some((incident: { id: number }) => incident.id === visibleIncident.id));
+
+  const outsiderList = await request("/incidents", {}, outsiderCookie);
+  assert.equal(outsiderList.status, 200);
+  assert.ok(!(await outsiderList.json()).data.some((incident: { id: number }) => incident.id === hiddenId));
+
+  assert.equal((await request(`/incidents/${hiddenId}`, {}, outsiderCookie)).status, 403);
+  assert.equal((await request(`/incidents/${hiddenId}`, {}, adminCookie)).status, 200);
 });
 
 test("incident APIs enforce authentication and let only the assigned worker advance the workflow", async () => {

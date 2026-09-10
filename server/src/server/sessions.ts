@@ -6,6 +6,14 @@ import { MAX_AGE_SECONDS } from "@/lib/auth";
 import { addMinutes, minutesAgo, parseTime, sqlNow, toSqlTime } from "@/lib/time";
 
 const TOUCH_AFTER_MINUTES = 5;
+const DEFAULT_RETENTION_BATCH = 100;
+const MAX_RETENTION_BATCH = 500;
+
+export function sessionRetentionBatch(value: string | undefined): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_RETENTION_BATCH;
+  return Math.min(Math.max(Math.trunc(parsed), 1), MAX_RETENTION_BATCH);
+}
 
 function newSessionId(): string {
   return randomBytes(24).toString("base64url");
@@ -95,11 +103,17 @@ export async function listSessions(userId: number) {
     .all();
 }
 
-export async function pruneSessions(): Promise<void> {
+export async function pruneSessions(limit = 100): Promise<number> {
   try {
-    await db.delete(sessions).where(sql`expires_at < ${minutesAgo(0)}`);
+    const expired = await db.select({ id: sessions.id }).from(sessions)
+      .where(sql`expires_at < ${minutesAgo(0)}`)
+      .orderBy(sessions.expiresAt).limit(Math.min(Math.max(limit, 1), 500)).all();
+    if (!expired.length) return 0;
+    await db.delete(sessions).where(sql`${sessions.id} in (${sql.join(expired.map((row) => sql`${row.id}`), sql`, `)})`);
+    return expired.length;
   } catch (err) {
     console.error("[session] prune failed:", err);
+    return 0;
   }
 }
 

@@ -100,6 +100,9 @@ export function Sidebar({ user }: { user: SessionPayload }) {
 
       <aside
         id="app-sidebar"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
         className={`workspace-rail fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col text-ink-300 shadow-pop transition-transform duration-200 md:sticky md:top-0 md:h-screen md:shrink-0 md:translate-x-0 md:shadow-none ${
           isOpen ? "translate-x-0" : ""
         }`}

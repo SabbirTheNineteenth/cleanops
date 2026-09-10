@@ -13,15 +13,9 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
 }
 
-const defaultApiOrigin = "http://localhost:3000/api";
+const defaultApiOrigin = "/api";
 
-export function resolveApiOrigin(
-  configuredOrigin = process.env.NEXT_PUBLIC_API_URL,
-  environment = process.env.NODE_ENV,
-): string {
-  if (!configuredOrigin && environment === "production") {
-    throw new Error("NEXT_PUBLIC_API_URL must be configured in production");
-  }
+export function resolveApiOrigin(configuredOrigin = process.env.NEXT_PUBLIC_API_URL): string {
   return configuredOrigin ?? defaultApiOrigin;
 }
 
@@ -74,7 +68,7 @@ function stringValues(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-export const getJSON = <T = unknown>(path: string) => api<T>(path);
+export const getJSON = <T = unknown>(path: string, options?: Omit<ApiRequestOptions, "body" | "method">) => api<T>(path, options);
 export const postJSON = <T = unknown>(path: string, body: unknown) => api<T>(path, { method: "POST", body });
 export const patchJSON = <T = unknown>(path: string, body: unknown) => api<T>(path, { method: "PATCH", body });
 export const deleteJSON = <T = unknown>(path: string) => api<T>(path, { method: "DELETE" });

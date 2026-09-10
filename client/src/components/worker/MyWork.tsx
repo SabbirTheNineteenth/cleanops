@@ -41,7 +41,7 @@ export function MyWork() {
   const [saving, setSaving] = useState(false);
 
   const load = () =>
-    getJSON<{ data: MyIncident[] }>("/incidents/mine").then((d) => setItems(d.data ?? []));
+    getJSON<{ data: MyIncident[] }>("/incidents/mine").then((d) => setItems(d.data ?? [])).catch((err) => { setItems([]); setError(err instanceof Error ? err.message : "Could not load assigned work"); });
 
   useEffect(() => {
     load();
@@ -87,6 +87,7 @@ export function MyWork() {
           <p className="text-xs text-ink-400">Incidents assigned to you. Update progress as you go.</p>
         </div>
       </div>
+      {error && !active && <div className="mb-3 flex items-center justify-between gap-2 text-sm text-red-600"><p>{error}</p><Button variant="secondary" onClick={load}>Retry</Button></div>}
 
       {!items ? (
         <div className="space-y-2">

@@ -55,6 +55,7 @@ type ListStateAction =
   | { type: "sort"; sort: string; dir: "asc" | "desc" }
   | { type: "dir"; value: "asc" | "desc" }
   | { type: "filter"; key: string; value: string }
+  | { type: "replaceFilters"; filters: Record<string, string> }
   | { type: "clearFilters" };
 
 export function reduceListState(state: ListState, action: ListStateAction): ListState {
@@ -76,6 +77,8 @@ export function reduceListState(state: ListState, action: ListStateAction): List
       else filters[action.key] = action.value;
       return { ...state, page: 1, filters };
     }
+    case "replaceFilters":
+      return { ...state, page: 1, filters: action.filters };
     case "clearFilters":
       return { ...state, page: 1, search: "", term: "", filters: {} };
   }
@@ -132,26 +135,28 @@ export function useList<T, E = Record<string, unknown>>(
       setLoading(false);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     const load = async () => {
       setLoading(true);
       try {
         const query = buildQuery();
-        const res = await getJSON<ListResponse<T> & E>(`${path}?${query}`);
-        if (cancelled) return;
+        const res = await getJSON<ListResponse<T> & E>(`${path}?${query}`, { signal: controller.signal });
         setRows(res.data ?? []);
         setMeta(res.meta ?? { ...EMPTY_META, pageSize });
         setExtra(res as unknown as E);
         setError("");
       } catch (err) {
-        if (!cancelled) setError((err as Error).message);
+        if ((err as Error).name === "AbortError") return;
+        setRows([]);
+        setExtra(null);
+        setError((err as Error).message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
     load();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [path, buildQuery, enabled, pageSize, tick]);
 
@@ -161,6 +166,10 @@ export function useList<T, E = Record<string, unknown>>(
 
   const clearFilters = useCallback(() => {
     dispatch({ type: "clearFilters" });
+  }, []);
+
+  const setFiltersFromUrl = useCallback((filters: Record<string, string>) => {
+    dispatch({ type: "replaceFilters", filters });
   }, []);
 
   const toggleSort = useCallback((key: string) => {
@@ -196,6 +205,7 @@ export function useList<T, E = Record<string, unknown>>(
     filters,
     setFilter,
     clearFilters,
+    setFiltersFromUrl,
     activeFilters,
     refresh: () => setTick((value) => value + 1),
     exportUrl: resolveApiUrl(`${path}?${buildQuery({ format: "csv" })}`),

@@ -34,14 +34,23 @@ export function AssignWorkerModal({
   const [siteId, setSiteId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
+  async function loadOptions() {
+    setLoadingOptions(true); setError("");
+    try {
+      const [workersResult, sitesResult] = await Promise.all([getJSON<{ data: WorkerLite[] }>("/workers?pageSize=200"), getJSON<{ data: SiteLite[] }>("/sites?pageSize=200&status=active")]);
+      setWorkers(workersResult.data ?? []); setSites(sitesResult.data ?? []);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not load assignment options"); }
+    finally { setLoadingOptions(false); }
+  }
 
   useEffect(() => {
     if (!open) return;
     setError("");
     setSiteId("");
     setWorkerId(fixedWorkerId ? String(fixedWorkerId) : "");
-    getJSON<{ data: WorkerLite[] }>("/workers?pageSize=200").then((d) => setWorkers(d.data ?? []));
-    getJSON<{ data: SiteLite[] }>("/sites?pageSize=200&status=active").then((d) => setSites(d.data ?? []));
+    loadOptions();
   }, [open, fixedWorkerId]);
 
   async function submit(e: React.FormEvent) {
@@ -83,10 +92,10 @@ export function AssignWorkerModal({
             ))}
           </Select>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <div className="flex items-center justify-between gap-2 text-sm text-red-600"><p>{error}</p><Button type="button" variant="secondary" onClick={loadOptions} disabled={loadingOptions}>Retry loading options</Button></div>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={saving}>{saving ? "Assigning…" : "Assign"}</Button>
+          <Button type="submit" disabled={saving || loadingOptions}>{saving ? "Assigning…" : "Assign"}</Button>
         </div>
       </form>
     </Modal>

@@ -6,7 +6,7 @@ import { deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 import { useList } from "@/lib/useList";
 import { Button, Card, Badge, EmptyState, Tone } from "@/components/ui";
-import { FilterSelect, ListContext, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
+import { FilterSelect, ListContext, ListLoadingSkeleton, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
 import { PageHeader } from "@/components/PageHeader";
 import { SiteFormModal, type SiteRecord } from "@/components/admin/SiteFormModal";
 
@@ -165,6 +165,7 @@ export default function SitesPage() {
             </tr>
           ))}
         </TableShell>
+        {list.loading && list.rows.length === 0 && <ListLoadingSkeleton rows={6} />}
         {list.rows.length === 0 && !list.loading && (
           <EmptyState
             icon={<MapPin size={20} />}

@@ -16,7 +16,7 @@ import { patchJSON, deleteJSON } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 import { useList } from "@/lib/useList";
 import { Button, Card, Badge, EmptyState, Select, Skeleton, Tone } from "@/components/ui";
-import { FilterSelect, ListContext, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
+import { FilterSelect, ListContext, ListLoadingSkeleton, ListToolbar, Pagination, SortHeader, TableShell } from "@/components/list";
 import { PageHeader } from "@/components/PageHeader";
 import { UserFormModal } from "@/components/admin/UserFormModal";
 import { ResetPasswordModal } from "@/components/admin/ResetPasswordModal";
@@ -320,13 +320,7 @@ export default function MembersPage() {
             );
           })}
         </TableShell>
-        {list.loading && list.rows.length === 0 && (
-          <div className="space-y-2 p-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12" />
-            ))}
-          </div>
-        )}
+        {list.loading && list.rows.length === 0 && <ListLoadingSkeleton rows={6} />}
         {!list.loading && list.rows.length === 0 && (
           <EmptyState
             icon={<ShieldCheck size={20} />}

@@ -16,6 +16,8 @@ import { userRoutes } from "./routes/users";
 import type { Variables } from "./middleware";
 import { logBestEffortFailure } from "./logging";
 import { resolveAllowedWebOrigins } from "./origins";
+import { runPendingTriage } from "./triage";
+import { pruneSessions, sessionRetentionBatch } from "./sessions";
 
 assertAuthConfiguration();
 
@@ -29,6 +31,18 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/health", (c) => c.json({ ok: true, service: "cleanops" }));
+
+app.get("/internal/triage", async (c) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const [processed, pruned] = await Promise.all([
+    runPendingTriage(10),
+    pruneSessions(sessionRetentionBatch(process.env.SESSION_RETENTION_BATCH)),
+  ]);
+  return c.json({ ok: true, processed, pruned });
+});
 
 app.use(
   "*",

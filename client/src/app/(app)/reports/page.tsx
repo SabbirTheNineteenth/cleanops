@@ -98,33 +98,38 @@ export default function ReportsPage() {
     setTo(dayStampAt(new Date()));
   }
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
     setError("");
+    setOverview(null);
+    setRows(null);
+    setSla(null);
     try {
       if (tab === "overview") {
-        setOverview(await getJSON<Overview>(`/reports/overview?${query}`));
+        setOverview(await getJSON<Overview>(`/reports/overview?${query}`, { signal }));
       } else if (tab === "sla") {
-        setSla(await getJSON<SlaReport>(`/reports/sla?${query}`));
+        setSla(await getJSON<SlaReport>(`/reports/sla?${query}`, { signal }));
       } else if (tab === "sites") {
-        const res = await getJSON<{ data: SiteRow[] }>(`/reports/sites?${query}`);
+        const res = await getJSON<{ data: SiteRow[] }>(`/reports/sites?${query}`, { signal });
         setRows(reportRowsFor("sites", res.data ?? []));
       } else if (tab === "workers") {
-        const res = await getJSON<{ data: WorkerRow[] }>(`/reports/workers?${query}`);
+        const res = await getJSON<{ data: WorkerRow[] }>(`/reports/workers?${query}`, { signal });
         setRows(reportRowsFor("workers", res.data ?? []));
       } else {
-        const res = await getJSON<{ data: CategoryRow[] }>(`/reports/categories?${query}`);
+        const res = await getJSON<{ data: CategoryRow[] }>(`/reports/categories?${query}`, { signal });
         setRows(reportRowsFor("categories", res.data ?? []));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the report");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Could not load the report");
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [tab, query]);
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const exportUrl = tab === "overview" ? null : resolveApiUrl(`/reports/${tab}?${query}&format=csv`);

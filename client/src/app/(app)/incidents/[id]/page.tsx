@@ -75,6 +75,7 @@ export default function IncidentDetailPage() {
   const [note, setNote] = useState("");
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [pulse, setPulse] = useState(0);
 
@@ -126,8 +127,10 @@ export default function IncidentDetailPage() {
 
   async function remove() {
     if (!confirm("Delete this incident? Comments, checklist and history go with it.")) return;
-    await deleteJSON(`/incidents/${id}`);
-    router.push("/incidents");
+    setDeleting(true); setError("");
+    try { await deleteJSON(`/incidents/${id}`); router.push("/incidents"); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not delete incident"); }
+    finally { setDeleting(false); }
   }
 
   const canWork = useMemo(() => {
@@ -421,8 +424,8 @@ export default function IncidentDetailPage() {
                     Save &amp; resolve
                   </Button>
                 </div>
-                <Button variant="ghost" className="w-full text-red-600" onClick={remove}>
-                  <Trash2 size={14} /> Delete incident
+                <Button variant="ghost" className="w-full text-red-600" onClick={remove} disabled={busy || deleting}>
+                  <Trash2 size={14} /> {deleting ? "Deleting…" : "Delete incident"}
                 </Button>
               </div>
             </Card>
